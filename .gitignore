@@ -1,0 +1,22 @@
+# Binary
+mac-agent
+mac-agent.exe
+
+# Environment & secrets
+.env
+
+# TLS certificates
+*.pem
+*.crt
+*.key
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.claude/
+.idea/
+.vscode/
+*.swp
+*.swo

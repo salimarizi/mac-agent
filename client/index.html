@@ -1,0 +1,1390 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="theme-color" content="#000000" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <title>Mac Remote</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --status-h: 48px;
+      --toolbar-h: 64px;
+      --accent: #6C5CE7;
+      --accent-glow: rgba(108, 92, 231, 0.35);
+      --accent-light: #A29BFE;
+      --bg: #000;
+      --surface: rgba(18, 18, 24, 0.82);
+      --surface-elevated: rgba(32, 32, 44, 0.75);
+      --glass-border: rgba(255, 255, 255, 0.08);
+      --glass-border-hover: rgba(255, 255, 255, 0.16);
+      --text: #F0F0F5;
+      --text-secondary: rgba(240, 240, 245, 0.45);
+      --danger: #FF6B6B;
+      --success: #51CF66;
+      --warn: #FFD43B;
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      overflow: hidden;
+      -webkit-tap-highlight-color: transparent;
+      touch-action: none;
+      overscroll-behavior: contain;
+    }
+
+    /* ── Layout ── */
+    #app {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    /* ── Status Bar ── */
+    #statusBar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 20px;
+      height: var(--status-h);
+      background: var(--surface);
+      backdrop-filter: blur(24px) saturate(1.4);
+      -webkit-backdrop-filter: blur(24px) saturate(1.4);
+      border-bottom: 1px solid var(--glass-border);
+      flex-shrink: 0;
+      z-index: 10;
+    }
+
+    #dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--text-secondary);
+      flex-shrink: 0;
+      transition: background 0.4s, box-shadow 0.4s;
+    }
+    #dot.connecting {
+      background: var(--warn);
+      box-shadow: 0 0 8px var(--warn);
+      animation: pulse 1.4s ease-in-out infinite;
+    }
+    #dot.connected {
+      background: var(--success);
+      box-shadow: 0 0 8px rgba(81, 207, 102, 0.5);
+      animation: none;
+    }
+    #dot.error {
+      background: var(--danger);
+      box-shadow: 0 0 8px rgba(255, 107, 107, 0.4);
+      animation: none;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50%       { opacity: 0.3; transform: scale(0.85); }
+    }
+
+    #statusText {
+      font-size: 13px;
+      font-weight: 500;
+      letter-spacing: 0.01em;
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      color: var(--text);
+    }
+
+    /* ── Video area ── */
+    #videoWrap {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+      cursor: none;
+      background: radial-gradient(ellipse at center, #0a0a14 0%, #000 100%);
+    }
+
+    #screen {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: block;
+      touch-action: none;
+      -webkit-user-select: none;
+      user-select: none;
+      transform-origin: 0 0;
+      will-change: transform;
+    }
+
+    /* ── Placeholder ── */
+    #placeholder {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      pointer-events: none;
+    }
+    #placeholder .icon-wrap {
+      width: 80px;
+      height: 80px;
+      border-radius: 24px;
+      background: var(--surface-elevated);
+      border: 1px solid var(--glass-border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    #placeholder .icon-wrap svg { opacity: 0.4; }
+    #placeholder p {
+      font-size: 14px;
+      color: var(--text-secondary);
+      text-align: center;
+      max-width: 240px;
+      line-height: 1.6;
+    }
+
+    /* ── Remote cursor ── */
+    #cursor {
+      position: absolute;
+      pointer-events: none;
+      z-index: 5;
+      display: none;
+      transition: left 0.03s linear, top 0.03s linear;
+    }
+    #cursor.visible { display: block; }
+    #cursorArrow { width: 16px; height: 22px; position: relative; }
+    #cursorArrow svg { filter: drop-shadow(0 1px 3px rgba(0,0,0,0.7)); }
+    #cursorRipple {
+      position: absolute;
+      top: 0; left: 0;
+      width: 30px; height: 30px;
+      border: 2px solid var(--accent-light);
+      border-radius: 50%;
+      transform: translate(-7px, -4px) scale(0);
+      opacity: 0;
+      pointer-events: none;
+    }
+    #cursorRipple.tap { animation: ripple 0.45s cubic-bezier(0.22, 1, 0.36, 1) forwards; }
+    @keyframes ripple {
+      0%   { transform: translate(-7px, -4px) scale(0); opacity: 1; }
+      100% { transform: translate(-7px, -4px) scale(1.8); opacity: 0; }
+    }
+
+    /* ── Toolbar ── */
+    #toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-around;
+      height: var(--toolbar-h);
+      background: var(--surface);
+      backdrop-filter: blur(24px) saturate(1.4);
+      -webkit-backdrop-filter: blur(24px) saturate(1.4);
+      border-top: 1px solid var(--glass-border);
+      flex-shrink: 0;
+      padding: 0 4px;
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+
+    .tbBtn {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      min-width: 56px;
+      min-height: 48px;
+      border: none;
+      background: transparent;
+      color: var(--text-secondary);
+      font-family: inherit;
+      font-size: 10px;
+      font-weight: 500;
+      letter-spacing: 0.02em;
+      border-radius: 14px;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      transition: color 0.25s, background 0.25s;
+    }
+    .tbBtn:active { background: rgba(255,255,255,0.06); }
+    .tbBtn svg {
+      flex-shrink: 0;
+      transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    .tbBtn:active svg { transform: scale(0.9); }
+    .tbBtn.active {
+      color: var(--accent-light);
+    }
+    .tbBtn.active svg {
+      filter: drop-shadow(0 0 6px var(--accent-glow));
+    }
+
+    /* ── Connect overlay ── */
+    #connectOverlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 24px;
+      background: rgba(0, 0, 0, 0.7);
+      backdrop-filter: blur(30px) saturate(1.2);
+      -webkit-backdrop-filter: blur(30px) saturate(1.2);
+      z-index: 20;
+      padding: 32px;
+    }
+
+    .overlay-card {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 24px;
+      padding: 36px 28px 32px;
+      background: var(--surface-elevated);
+      border: 1px solid var(--glass-border);
+      border-radius: 28px;
+      width: 100%;
+      max-width: 360px;
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      box-shadow: 0 24px 80px rgba(0,0,0,0.5), 0 0 0 0.5px rgba(255,255,255,0.05) inset;
+    }
+
+    .overlay-logo {
+      width: 64px;
+      height: 64px;
+      border-radius: 18px;
+      background: linear-gradient(135deg, var(--accent), #a855f7);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 8px 32px var(--accent-glow);
+    }
+
+    #connectOverlay h1 {
+      font-size: 24px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      background: linear-gradient(to right, #fff, var(--accent-light));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    #connectOverlay .subtitle {
+      font-size: 14px;
+      color: var(--text-secondary);
+      text-align: center;
+      line-height: 1.5;
+      margin-top: -12px;
+    }
+
+    #hostInput, #passwordInput {
+      width: 100%;
+      padding: 14px 18px;
+      border-radius: 16px;
+      border: 1.5px solid var(--glass-border);
+      background: rgba(255, 255, 255, 0.04);
+      color: #fff;
+      font-family: inherit;
+      font-size: 16px;
+      font-weight: 500;
+      outline: none;
+      text-align: center;
+      transition: border-color 0.3s, box-shadow 0.3s, background 0.3s;
+    }
+    #hostInput:focus, #passwordInput:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-glow);
+      background: rgba(108, 92, 231, 0.06);
+    }
+    #hostInput::placeholder, #passwordInput::placeholder { color: var(--text-secondary); font-weight: 400; }
+
+    #connectBtn {
+      width: 100%;
+      padding: 16px;
+      border-radius: 16px;
+      border: none;
+      background: linear-gradient(135deg, var(--accent), #8B5CF6);
+      color: #fff;
+      font-family: inherit;
+      font-size: 16px;
+      font-weight: 600;
+      letter-spacing: 0.01em;
+      cursor: pointer;
+      transition: opacity 0.2s, transform 0.15s, box-shadow 0.3s;
+      box-shadow: 0 4px 24px var(--accent-glow);
+    }
+    #connectBtn:active { transform: scale(0.97); }
+    #connectBtn:disabled {
+      opacity: 0.35;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
+
+    #errorMsg {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--danger);
+      text-align: center;
+      min-height: 18px;
+    }
+
+    /* ── Keyboard hint ── */
+    #kbHint {
+      position: absolute;
+      bottom: 80px;
+      left: 50%;
+      transform: translateX(-50%) translateY(8px);
+      background: var(--surface-elevated);
+      border: 1px solid var(--glass-border);
+      border-radius: 12px;
+      padding: 10px 18px;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.3s, transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+      white-space: nowrap;
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+    }
+    #kbHint.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+    #kbCapture {
+      position: absolute;
+      opacity: 0;
+      pointer-events: none;
+      width: 1px; height: 1px;
+      top: 50%; left: 50%;
+    }
+
+    /* ── Accessory key bar ── */
+    #keyBar {
+      display: none;
+      flex-shrink: 0;
+      background: var(--surface);
+      backdrop-filter: blur(24px) saturate(1.4);
+      -webkit-backdrop-filter: blur(24px) saturate(1.4);
+      border-top: 1px solid var(--glass-border);
+      padding: 6px 4px;
+      z-index: 10;
+    }
+    #keyBar.visible { display: block; }
+
+    .keyBarScroll {
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
+      padding: 0 4px;
+      touch-action: pan-x;
+    }
+    .keyBarScroll::-webkit-scrollbar { display: none; }
+
+    .kbKey {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 40px;
+      height: 36px;
+      padding: 0 10px;
+      border-radius: 8px;
+      border: 1px solid var(--glass-border);
+      background: var(--surface-elevated);
+      color: var(--text);
+      font-family: inherit;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      white-space: nowrap;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      transition: background 0.15s, border-color 0.15s, color 0.15s;
+      flex-shrink: 0;
+    }
+    .kbKey:active { background: rgba(255,255,255,0.1); }
+    .kbKey.held {
+      background: var(--accent);
+      border-color: var(--accent-light);
+      color: #fff;
+    }
+
+    .kbDismiss {
+      margin-left: auto;
+      background: rgba(255,107,107,0.12);
+      border-color: rgba(255,107,107,0.2);
+      color: var(--danger);
+    }
+
+    .kbSep {
+      width: 1px;
+      height: 24px;
+      background: var(--glass-border);
+      flex-shrink: 0;
+      align-self: center;
+    }
+
+    /* ── Keyboard-open state: shrink video ── */
+    #app.kb-open #videoWrap {
+      transition: flex 0.25s ease;
+    }
+
+    /* ── Reduced motion ── */
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
+  </style>
+</head>
+<body>
+<div id="app">
+  <div id="statusBar">
+    <div id="dot"></div>
+    <span id="statusText">Not connected</span>
+  </div>
+
+  <div id="videoWrap">
+    <video id="screen" autoplay playsinline muted></video>
+    <div id="cursor">
+      <div id="cursorArrow">
+        <svg width="16" height="22" viewBox="0 0 16 22" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M1 1L1 18.5L5.5 14L9.5 21L12 19.5L8 13L14 12L1 1Z" fill="white" stroke="black" stroke-width="1.2"/>
+        </svg>
+      </div>
+      <div id="cursorRipple"></div>
+    </div>
+
+    <div id="placeholder">
+      <div class="icon-wrap">
+        <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="2" y="3" width="20" height="14" rx="2"/>
+          <path d="M8 21h8M12 17v4"/>
+        </svg>
+      </div>
+      <p>Connect to start controlling your Mac</p>
+    </div>
+
+    <div id="connectOverlay">
+      <div class="overlay-card">
+        <div class="overlay-logo">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="3" width="20" height="14" rx="2"/>
+            <path d="M8 21h8M12 17v4"/>
+          </svg>
+        </div>
+        <h1>Mac Remote</h1>
+        <p class="subtitle">Enter your Mac's address and password</p>
+        <input id="hostInput" type="text" placeholder="192.168.1.x:8443" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+        <input id="passwordInput" type="password" placeholder="Password" autocomplete="current-password" />
+        <button id="connectBtn">Connect</button>
+        <span id="errorMsg"></span>
+      </div>
+    </div>
+
+    <div id="kbHint">Keyboard active</div>
+  </div>
+
+  <!-- Accessory key bar (arrows, Esc, Tab, modifiers) — shown when mobile keyboard is open -->
+  <div id="keyBar">
+    <div class="keyBarScroll">
+      <button class="kbKey" data-key="escape">Esc</button>
+      <button class="kbKey" data-key="tab">Tab</button>
+      <button class="kbKey kbMod" data-mod="cmd">Cmd</button>
+      <button class="kbKey kbMod" data-mod="ctrl">Ctrl</button>
+      <button class="kbKey kbMod" data-mod="alt">Opt</button>
+      <button class="kbKey kbMod" data-mod="shift">Shift</button>
+      <span class="kbSep"></span>
+      <button class="kbKey" data-key="left">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+      </button>
+      <button class="kbKey" data-key="down">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+      </button>
+      <button class="kbKey" data-key="up">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 15l-6-6-6 6"/></svg>
+      </button>
+      <button class="kbKey" data-key="right">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+      </button>
+      <span class="kbSep"></span>
+      <button class="kbKey" data-key="delete">Del</button>
+      <button class="kbKey" data-key="home">Home</button>
+      <button class="kbKey" data-key="end">End</button>
+      <button class="kbKey kbDismiss" id="kbDismissBtn">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 13l5 5 5-5M7 6l5 5 5-5"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <div id="toolbar">
+    <button class="tbBtn" id="btnKb" aria-label="Toggle keyboard">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="2" y="6" width="20" height="12" rx="2"/>
+        <path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8"/>
+      </svg>
+      <span>Keys</span>
+    </button>
+    <button class="tbBtn" id="btnScroll" aria-label="Toggle scroll mode">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 3v18M5 10l7-7 7 7M5 14l7 7 7-7"/>
+      </svg>
+      <span>Scroll</span>
+    </button>
+    <button class="tbBtn" id="btnRightClick" aria-label="Right click">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="6" y="2" width="12" height="20" rx="6"/>
+        <path d="M12 2v8"/>
+        <line x1="12" y1="12" x2="12" y2="12.01"/>
+      </svg>
+      <span>Right</span>
+    </button>
+    <button class="tbBtn" id="btnFullscreen" aria-label="Fullscreen">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
+      </svg>
+      <span>Full</span>
+    </button>
+    <button class="tbBtn" id="btnDisconnect" aria-label="Disconnect">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+        <polyline points="16 17 21 12 16 7"/>
+        <line x1="21" y1="12" x2="9" y2="12"/>
+      </svg>
+      <span>Exit</span>
+    </button>
+  </div>
+</div>
+
+<textarea id="kbCapture" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
+
+<script>
+'use strict';
+
+// ── State ────────────────────────────────────────────────────────────────────
+const state = {
+  ws: null,
+  pc: null,
+  dc: null,
+  connected: false,
+  scrollMode: false,
+  nextRightClick: false,
+};
+
+// ── Zoom / pan state ──────────────────────────────────────────────────────────
+const zoom = {
+  scale: 1,
+  panX: 0,
+  panY: 0,
+  startDist: 0,
+  startScale: 1,
+  pinching: false,
+};
+const ZOOM_MIN = 1;
+const ZOOM_MAX = 5;
+
+function applyZoom() {
+  screen.style.transform = zoom.scale === 1
+    ? ''
+    : `translate(${zoom.panX}px, ${zoom.panY}px) scale(${zoom.scale})`;
+}
+
+function clampPan() {
+  if (zoom.scale <= 1) { zoom.panX = 0; zoom.panY = 0; return; }
+  const r = videoWrap.getBoundingClientRect();
+  const maxPanX = r.width  * (zoom.scale - 1) / 2;
+  const maxPanY = r.height * (zoom.scale - 1) / 2;
+  zoom.panX = Math.max(-maxPanX, Math.min(maxPanX, zoom.panX));
+  zoom.panY = Math.max(-maxPanY, Math.min(maxPanY, zoom.panY));
+}
+
+function resetZoom() {
+  zoom.scale = 1;
+  zoom.panX = 0;
+  zoom.panY = 0;
+  applyZoom();
+}
+
+function fingerDist(t) {
+  const dx = t[0].clientX - t[1].clientX;
+  const dy = t[0].clientY - t[1].clientY;
+  return Math.hypot(dx, dy);
+}
+
+function isZoomed() { return zoom.scale > 1.05; }
+
+// ── Remote cursor tracking ────────────────────────────────────────────────────
+const remoteCursor = { x: 0.5, y: 0.5 };
+
+function updateCursorDisplay() {
+  const r = screen.getBoundingClientRect();
+  const vw = screen.videoWidth  || r.width;
+  const vh = screen.videoHeight || r.height;
+  const scale = Math.min(r.width / vw, r.height / vh);
+  const rw = vw * scale;
+  const rh = vh * scale;
+  const ox = (r.width  - rw) / 2;
+  const oy = (r.height - rh) / 2;
+  const px = ox + remoteCursor.x * rw;
+  const py = oy + remoteCursor.y * rh;
+  cursor.style.left = px + 'px';
+  cursor.style.top  = py + 'px';
+}
+
+function moveCursorRel(dx, dy) {
+  const vw = screen.videoWidth  || 1600;
+  const vh = screen.videoHeight || 900;
+  remoteCursor.x = Math.max(0, Math.min(1, remoteCursor.x + dx / vw));
+  remoteCursor.y = Math.max(0, Math.min(1, remoteCursor.y + dy / vh));
+  updateCursorDisplay();
+}
+
+function moveCursorAbs(x, y) {
+  remoteCursor.x = x;
+  remoteCursor.y = y;
+  updateCursorDisplay();
+}
+
+function showCursorRipple() {
+  const ripple = document.getElementById('cursorRipple');
+  ripple.classList.remove('tap');
+  void ripple.offsetWidth;
+  ripple.classList.add('tap');
+}
+
+// ── DOM refs ─────────────────────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+const dot         = $('dot');
+const statusText  = $('statusText');
+const screen      = $('screen');
+const placeholder = $('placeholder');
+const overlay     = $('connectOverlay');
+const hostInput   = $('hostInput');
+const passwordInput = $('passwordInput');
+const connectBtn  = $('connectBtn');
+const errorMsg    = $('errorMsg');
+const videoWrap   = $('videoWrap');
+const cursor      = $('cursor');
+const kbHint      = $('kbHint');
+const kbCapture   = $('kbCapture');
+const btnKb       = $('btnKb');
+const btnScroll   = $('btnScroll');
+const btnRightClick = $('btnRightClick');
+const btnFullscreen = $('btnFullscreen');
+const btnDisconnect = $('btnDisconnect');
+
+// ICE servers received from the server after auth (includes TURN credentials).
+let serverICE = [{ urls: 'stun:stun.l.google.com:19302' }];
+
+// ── Persist last host (password stays in sessionStorage only) ────────────────
+const selfHost = (window.location.hostname && window.location.hostname !== 'localhost')
+  ? window.location.host
+  : null;
+if (selfHost) {
+  hostInput.value = selfHost;
+  const savedPw = sessionStorage.getItem('macagent_pw');
+  if (savedPw) {
+    passwordInput.value = savedPw;
+    window.addEventListener('load', () => connect(selfHost, savedPw), { once: true });
+  }
+} else {
+  const savedHost = localStorage.getItem('macagent_host');
+  if (savedHost) hostInput.value = savedHost;
+  const savedPw = sessionStorage.getItem('macagent_pw');
+  if (savedPw) passwordInput.value = savedPw;
+}
+
+// ── Status helpers ────────────────────────────────────────────────────────────
+function setStatus(label, cls) {
+  statusText.textContent = label;
+  dot.className = cls || '';
+}
+
+function showError(msg) {
+  errorMsg.textContent = msg;
+}
+
+// ── Signaling helpers ─────────────────────────────────────────────────────────
+function wsSend(type, payload) {
+  if (!state.ws || state.ws.readyState !== WebSocket.OPEN) return;
+  const msg = payload !== undefined ? { type, payload } : { type };
+  state.ws.send(JSON.stringify(msg));
+}
+
+// ── Input helpers ─────────────────────────────────────────────────────────────
+function dcSend(obj) {
+  if (state.dc && state.dc.readyState === 'open') {
+    state.dc.send(JSON.stringify(obj));
+  }
+}
+
+// ── Connect ───────────────────────────────────────────────────────────────────
+async function connect(host, password) {
+  disconnect();
+  showError('');
+  setStatus('Connecting\u2026', 'connecting');
+  connectBtn.disabled = true;
+
+  const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+  const wsURL = `${proto}://${host}/ws`;
+
+  let ws;
+  try {
+    ws = new WebSocket(wsURL);
+  } catch (e) {
+    setStatus('Not connected', 'error');
+    showError('Invalid address.');
+    connectBtn.disabled = false;
+    return;
+  }
+  state.ws = ws;
+
+  ws.onopen = () => {
+    setStatus('Authenticating\u2026', 'connecting');
+    wsSend('auth', password || '');
+  };
+
+  ws.onmessage = async (ev) => {
+    let msg;
+    try { msg = JSON.parse(ev.data); } catch { return; }
+    switch (msg.type) {
+      case 'auth_ok':
+        if (msg.payload?.iceServers) {
+          serverICE = msg.payload.iceServers;
+        }
+        setStatus('Handshaking\u2026', 'connecting');
+        wsSend('hello');
+        break;
+      case 'auth_fail':
+        showError(msg.payload?.message || 'Authentication failed');
+        setStatus('Auth failed', 'error');
+        connectBtn.disabled = false;
+        sessionStorage.removeItem('macagent_pw');
+        ws.close();
+        return;
+      case 'offer':
+        await handleOffer(msg.payload);
+        break;
+      case 'candidate':
+        if (state.pc && msg.payload) {
+          try { await state.pc.addIceCandidate(msg.payload); } catch {}
+        }
+        break;
+      case 'error':
+        showError(msg.payload?.message || 'Server error');
+        setStatus('Error', 'error');
+        break;
+    }
+  };
+
+  ws.onerror = () => {
+    setStatus('Connection failed', 'error');
+    showError(`Could not reach ${host}`);
+    connectBtn.disabled = false;
+  };
+
+  ws.onclose = () => {
+    if (state.connected) {
+      setStatus('Disconnected', 'error');
+      state.connected = false;
+    }
+    connectBtn.disabled = false;
+    overlay.style.display = 'flex';
+    placeholder.style.display = 'flex';
+  };
+}
+
+async function handleOffer(offer) {
+  const pc = new RTCPeerConnection({ iceServers: serverICE });
+  state.pc = pc;
+
+  pc.onicecandidate = ({ candidate }) => {
+    if (candidate) wsSend('candidate', candidate.toJSON());
+  };
+
+  pc.onconnectionstatechange = () => {
+    const s = pc.connectionState;
+    if (s === 'connected') {
+      state.connected = true;
+      setStatus('Connected', 'connected');
+      overlay.style.display = 'none';
+      placeholder.style.display = 'none';
+      cursor.classList.add('visible');
+      updateCursorDisplay();
+    } else if (s === 'failed' || s === 'disconnected' || s === 'closed') {
+      setStatus(s === 'failed' ? 'Connection failed' : 'Disconnected', 'error');
+      state.connected = false;
+      overlay.style.display = 'flex';
+      placeholder.style.display = 'flex';
+      cursor.classList.remove('visible');
+    }
+  };
+
+  pc.ondatachannel = ({ channel }) => {
+    if (channel.label !== 'input') return;
+    state.dc = channel;
+    channel.onmessage = ({ data }) => {
+      try {
+        const msg = JSON.parse(data);
+        if (msg.t === 'cursor') {
+          moveCursorAbs(msg.x, msg.y);
+        }
+      } catch {}
+    };
+  };
+
+  pc.ontrack = ({ streams }) => {
+    screen.srcObject = streams[0];
+  };
+
+  await pc.setRemoteDescription(offer);
+  const answer = await pc.createAnswer();
+  await pc.setLocalDescription(answer);
+  wsSend('answer', answer);
+}
+
+function disconnect() {
+  if (state.pc)  { state.pc.close();  state.pc  = null; }
+  if (state.ws)  { state.ws.close();  state.ws  = null; }
+  state.dc = null;
+  state.connected = false;
+  screen.srcObject = null;
+}
+
+// ── Mouse input (desktop) ─────────────────────────────────────────────────────
+function videoToNorm(clientX, clientY) {
+  const r = screen.getBoundingClientRect();
+  const vw = screen.videoWidth  || r.width;
+  const vh = screen.videoHeight || r.height;
+  const scale = Math.min(r.width / vw, r.height / vh);
+  const rw = vw * scale;
+  const rh = vh * scale;
+  const ox = r.left + (r.width  - rw) / 2;
+  const oy = r.top  + (r.height - rh) / 2;
+  const x = (clientX - ox) / rw;
+  const y = (clientY - oy) / rh;
+  return { x: Math.max(0, Math.min(1, x)), y: Math.max(0, Math.min(1, y)) };
+}
+
+videoWrap.addEventListener('mousemove', e => {
+  if (!state.connected) return;
+  const { x, y } = videoToNorm(e.clientX, e.clientY);
+  dcSend({ t: 'moveabs', x, y });
+  moveCursorAbs(x, y);
+});
+
+videoWrap.addEventListener('mousedown', e => {
+  if (!state.connected) return;
+  e.preventDefault();
+  const btn = e.button === 2 ? 'right' : e.button === 1 ? 'center' : 'left';
+  dcSend({ t: 'down', button: btn });
+});
+
+videoWrap.addEventListener('mouseup', e => {
+  if (!state.connected) return;
+  const btn = e.button === 2 ? 'right' : e.button === 1 ? 'center' : 'left';
+  dcSend({ t: 'up', button: btn });
+});
+
+videoWrap.addEventListener('click', e => {
+  if (!state.connected) return;
+  const { x, y } = videoToNorm(e.clientX, e.clientY);
+  dcSend({ t: 'moveabs', x, y });
+  const btn = e.button === 2 ? 'right' : 'left';
+  dcSend({ t: 'click', button: btn });
+});
+
+videoWrap.addEventListener('dblclick', e => {
+  if (!state.connected) return;
+  const { x, y } = videoToNorm(e.clientX, e.clientY);
+  dcSend({ t: 'moveabs', x, y });
+  dcSend({ t: 'dblclick', button: 'left' });
+});
+
+videoWrap.addEventListener('contextmenu', e => {
+  e.preventDefault();
+  if (!state.connected) return;
+  const { x, y } = videoToNorm(e.clientX, e.clientY);
+  dcSend({ t: 'moveabs', x, y });
+  dcSend({ t: 'click', button: 'right' });
+});
+
+videoWrap.addEventListener('wheel', e => {
+  if (!state.connected) return;
+  e.preventDefault();
+  const dx = Math.round(e.deltaX / 20);
+  const dy = -Math.round(e.deltaY / 20);
+  if (dx !== 0 || dy !== 0) dcSend({ t: 'scroll', dx, dy });
+}, { passive: false });
+
+// ── Scroll engine (accumulation + momentum) ──────────────────────────────────
+const scroller = {
+  accX: 0, accY: 0,
+  velX: 0, velY: 0,
+  lastTime: 0,
+  rafId: null,
+  THRESHOLD: 3,
+  FRICTION: 0.94,
+  MIN_VEL: 0.2,
+};
+
+function scrollFeed(dx, dy) {
+  scroller.accX += dx;
+  scroller.accY += dy;
+  const now = performance.now();
+  const dt = now - scroller.lastTime || 16;
+  scroller.lastTime = now;
+  const alpha = Math.min(1, dt / 80);
+  scroller.velX = scroller.velX * (1 - alpha) + (dx / dt * 16) * alpha;
+  scroller.velY = scroller.velY * (1 - alpha) + (dy / dt * 16) * alpha;
+  scrollFlush();
+}
+
+function scrollFlush() {
+  const sx = Math.trunc(scroller.accX / scroller.THRESHOLD);
+  const sy = Math.trunc(scroller.accY / scroller.THRESHOLD);
+  if (sx !== 0) scroller.accX -= sx * scroller.THRESHOLD;
+  if (sy !== 0) scroller.accY -= sy * scroller.THRESHOLD;
+  if (sx !== 0 || sy !== 0) dcSend({ t: 'scroll', dx: sx, dy: sy });
+}
+
+function scrollMomentumStart() {
+  scrollMomentumStop();
+  if (Math.abs(scroller.velX) < scroller.MIN_VEL &&
+      Math.abs(scroller.velY) < scroller.MIN_VEL) return;
+  function tick() {
+    scroller.velX *= scroller.FRICTION;
+    scroller.velY *= scroller.FRICTION;
+    if (Math.abs(scroller.velX) < scroller.MIN_VEL &&
+        Math.abs(scroller.velY) < scroller.MIN_VEL) {
+      scroller.velX = scroller.velY = scroller.accX = scroller.accY = 0;
+      return;
+    }
+    scroller.accX += scroller.velX;
+    scroller.accY += scroller.velY;
+    scrollFlush();
+    scroller.rafId = requestAnimationFrame(tick);
+  }
+  scroller.rafId = requestAnimationFrame(tick);
+}
+
+function scrollMomentumStop() {
+  if (scroller.rafId) { cancelAnimationFrame(scroller.rafId); scroller.rafId = null; }
+}
+
+function scrollReset() {
+  scrollMomentumStop();
+  scroller.accX = scroller.accY = scroller.velX = scroller.velY = 0;
+}
+
+// ── Touch input (mobile / iPhone) ─────────────────────────────────────────────
+const touch = {
+  startX: 0, startY: 0,
+  lastX: 0,  lastY: 0,
+  startTime: 0,
+  moved: false,
+  longPressTimer: null,
+  lastTapTime: 0,
+};
+
+const LONG_PRESS_MS  = 500;
+const TAP_MAX_MOVE   = 10;
+const DTAP_INTERVAL  = 300;
+
+videoWrap.addEventListener('touchstart', e => {
+  if (!state.connected) return;
+  e.preventDefault();
+  clearTimeout(touch.longPressTimer);
+  scrollMomentumStop();
+
+  if (e.touches.length === 1) {
+    const t = e.touches[0];
+    touch.startX = touch.lastX = t.clientX;
+    touch.startY = touch.lastY = t.clientY;
+    touch.startTime = Date.now();
+    touch.moved = false;
+    touch.longPressTimer = setTimeout(() => {
+      if (!touch.moved) {
+        dcSend({ t: 'click', button: 'right' });
+        navigator.vibrate?.(30);
+      }
+    }, LONG_PRESS_MS);
+  }
+
+  if (e.touches.length === 2) {
+    clearTimeout(touch.longPressTimer);
+    scrollReset();
+    touch.startX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+    touch.startY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+    touch.lastX  = touch.startX;
+    touch.lastY  = touch.startY;
+    touch.moved  = false;
+    zoom.startDist  = fingerDist(e.touches);
+    zoom.startScale = zoom.scale;
+    zoom.pinching   = false;
+  }
+}, { passive: false });
+
+videoWrap.addEventListener('touchmove', e => {
+  if (!state.connected) return;
+  e.preventDefault();
+
+  if (e.touches.length === 1 && !state.scrollMode) {
+    const t = e.touches[0];
+    const dx = t.clientX - touch.lastX;
+    const dy = t.clientY - touch.lastY;
+    touch.lastX = t.clientX;
+    touch.lastY = t.clientY;
+    const dist = Math.hypot(t.clientX - touch.startX, t.clientY - touch.startY);
+    if (dist > TAP_MAX_MOVE) touch.moved = true;
+    if (dx !== 0 || dy !== 0) {
+      if (isZoomed()) {
+        zoom.panX += dx; zoom.panY += dy;
+        clampPan(); applyZoom();
+      } else {
+        dcSend({ t: 'move', dx: Math.round(dx), dy: Math.round(dy) });
+      }
+    }
+  } else if (e.touches.length === 2) {
+    const mx = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+    const my = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+    const curDist = fingerDist(e.touches);
+    const distRatio = curDist / zoom.startDist;
+    if (Math.abs(distRatio - 1) > 0.08) zoom.pinching = true;
+    if (zoom.pinching) {
+      zoom.scale = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, zoom.startScale * distRatio));
+      zoom.panX += mx - touch.lastX; zoom.panY += my - touch.lastY;
+      clampPan(); applyZoom();
+      touch.moved = true;
+    } else {
+      scrollFeed(mx - touch.lastX, -(my - touch.lastY));
+      touch.moved = true;
+    }
+    touch.lastX = mx; touch.lastY = my;
+  } else if (state.scrollMode && e.touches.length === 1) {
+    const t = e.touches[0];
+    const dx = t.clientX - touch.lastX; const dy = t.clientY - touch.lastY;
+    touch.lastX = t.clientX; touch.lastY = t.clientY;
+    touch.moved = true;
+    scrollFeed(dx, -dy);
+  }
+}, { passive: false });
+
+videoWrap.addEventListener('touchend', e => {
+  if (!state.connected) return;
+  e.preventDefault();
+  clearTimeout(touch.longPressTimer);
+  const elapsed = Date.now() - touch.startTime;
+  const wasTap = !touch.moved && elapsed < LONG_PRESS_MS;
+  if (zoom.scale < 1.05) resetZoom();
+  if (touch.moved && !zoom.pinching && !wasTap && e.touches.length === 0) {
+    scrollMomentumStart();
+  }
+  if (e.changedTouches.length === 1 && e.touches.length === 0) {
+    if (wasTap) {
+      scrollReset();
+      const now = Date.now();
+      const isDoubleTap = (now - touch.lastTapTime) < DTAP_INTERVAL;
+      touch.lastTapTime = now;
+      if (isDoubleTap) {
+        if (isZoomed()) { resetZoom(); }
+        else {
+          zoom.scale = 2.5;
+          const t = e.changedTouches[0];
+          const r = videoWrap.getBoundingClientRect();
+          const cx = t.clientX - r.left - r.width / 2;
+          const cy = t.clientY - r.top - r.height / 2;
+          zoom.panX = -cx * (zoom.scale - 1);
+          zoom.panY = -cy * (zoom.scale - 1);
+          clampPan(); applyZoom();
+        }
+        touch.lastTapTime = 0;
+      } else if (state.nextRightClick) {
+        dcSend({ t: 'click', button: 'right' });
+        showCursorRipple();
+        state.nextRightClick = false;
+        btnRightClick.classList.remove('active');
+      } else {
+        dcSend({ t: 'click', button: 'left' });
+        showCursorRipple();
+      }
+    }
+  }
+  if (e.touches.length === 0 && e.changedTouches.length === 2 && !touch.moved && !zoom.pinching) {
+    dcSend({ t: 'click', button: 'right' });
+  }
+  if (e.touches.length === 0) zoom.pinching = false;
+}, { passive: false });
+
+// ── Desktop keyboard ──────────────────────────────────────────────────────────
+const KEY_MAP = {
+  'Enter': 'enter', 'Backspace': 'backspace', 'Delete': 'delete',
+  'Escape': 'escape', 'Tab': 'tab', 'ArrowUp': 'up', 'ArrowDown': 'down',
+  'ArrowLeft': 'left', 'ArrowRight': 'right', 'Home': 'home', 'End': 'end',
+  'PageUp': 'pageup', 'PageDown': 'pagedown', 'F1': 'f1', 'F2': 'f2',
+  'F3': 'f3', 'F4': 'f4', 'F5': 'f5', 'F6': 'f6', 'F7': 'f7', 'F8': 'f8',
+  'F9': 'f9', 'F10': 'f10', 'F11': 'f11', 'F12': 'f12',
+};
+
+document.addEventListener('keydown', e => {
+  if (!state.connected) return;
+  if (e.target === hostInput || e.target === passwordInput || e.target === connectBtn) return;
+  const mods = [];
+  if (e.metaKey) mods.push('cmd');
+  if (e.ctrlKey) mods.push('ctrl');
+  if (e.altKey)  mods.push('alt');
+  if (e.shiftKey) mods.push('shift');
+  const mapped = KEY_MAP[e.key];
+  if (mapped) { e.preventDefault(); dcSend({ t: 'key', key: mapped, mods }); return; }
+  if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) { e.preventDefault(); dcSend({ t: 'type', text: e.key }); return; }
+  if (e.key.length === 1 && mods.length > 0) { e.preventDefault(); dcSend({ t: 'key', key: e.key.toLowerCase(), mods }); }
+});
+
+// ── Mobile keyboard via hidden textarea ───────────────────────────────────────
+let lastKbValue = '';
+const keyBar = $('keyBar');
+const kbDismissBtn = $('kbDismissBtn');
+const app = $('app');
+
+function showKb() {
+  kbCapture.value = ' ';
+  lastKbValue = ' ';
+  kbCapture.focus();
+  btnKb.classList.add('active');
+  keyBar.classList.add('visible');
+  kbHint.classList.add('show');
+  setTimeout(() => kbHint.classList.remove('show'), 2000);
+}
+
+function hideKb() {
+  kbCapture.blur();
+  btnKb.classList.remove('active');
+  keyBar.classList.remove('visible');
+  app.classList.remove('kb-open');
+  document.documentElement.style.height = '';
+  // Clear held modifiers
+  heldMods.clear();
+  keyBar.querySelectorAll('.kbMod.held').forEach(b => b.classList.remove('held'));
+}
+
+btnKb.addEventListener('click', () => {
+  if (document.activeElement === kbCapture) { hideKb(); return; }
+  showKb();
+});
+
+kbCapture.addEventListener('input', () => {
+  const val = kbCapture.value;
+  if (val.length > lastKbValue.length) {
+    const added = val.slice(lastKbValue.length);
+    if (added) {
+      const mods = [...heldMods];
+      if (mods.length > 0) {
+        // Type with modifiers = send as key tap per character
+        for (const ch of added) dcSend({ t: 'key', key: ch, mods });
+        releaseAllMods();
+      } else {
+        dcSend({ t: 'type', text: added });
+      }
+    }
+  } else if (val.length < lastKbValue.length) {
+    const count = lastKbValue.length - val.length;
+    for (let i = 0; i < count; i++) dcSend({ t: 'key', key: 'backspace', mods: [] });
+  }
+  lastKbValue = val;
+  if (val.length < 3) { kbCapture.value = '   '; lastKbValue = kbCapture.value; }
+});
+
+kbCapture.addEventListener('keydown', e => {
+  if (!state.connected) return;
+  const mapped = KEY_MAP[e.key];
+  if (mapped && mapped !== 'backspace') { e.preventDefault(); dcSend({ t: 'key', key: mapped, mods: [] }); }
+});
+
+// Use a flag so blur from tapping keyBar buttons is suppressed.
+let keyBarTouching = false;
+let blurTimer = null;
+
+kbCapture.addEventListener('blur', () => {
+  // Delay blur handling — if a keyBar button was tapped, we'll cancel this.
+  blurTimer = setTimeout(() => {
+    if (keyBarTouching) return; // tap in progress, don't dismiss
+    btnKb.classList.remove('active');
+    keyBar.classList.remove('visible');
+    app.classList.remove('kb-open');
+    document.documentElement.style.height = '';
+    heldMods.clear();
+    keyBar.querySelectorAll('.kbMod.held').forEach(b => b.classList.remove('held'));
+  }, 80);
+});
+
+// ── Accessory key bar (arrows, special keys, modifiers) ──────────────────────
+const heldMods = new Set();
+
+function releaseAllMods() {
+  heldMods.clear();
+  keyBar.querySelectorAll('.kbMod.held').forEach(b => b.classList.remove('held'));
+}
+
+function handleKeyBarBtn(btn) {
+  // Dismiss button
+  if (btn === kbDismissBtn) { hideKb(); return; }
+
+  // Modifier toggle (sticky)
+  const mod = btn.dataset.mod;
+  if (mod) {
+    if (heldMods.has(mod)) {
+      heldMods.delete(mod);
+      btn.classList.remove('held');
+    } else {
+      heldMods.add(mod);
+      btn.classList.add('held');
+    }
+    return;
+  }
+
+  // Regular key
+  const key = btn.dataset.key;
+  if (key) {
+    const mods = [...heldMods];
+    dcSend({ t: 'key', key, mods });
+    if (heldMods.size > 0) releaseAllMods();
+  }
+}
+
+// Track keyBar touches: set flag to suppress blur, detect scroll vs tap.
+let keyBarScrolling = false;
+let keyBarTouchStartX = 0;
+
+keyBar.addEventListener('touchstart', e => {
+  keyBarTouching = true;
+  keyBarScrolling = false;
+  keyBarTouchStartX = e.touches[0].clientX;
+  clearTimeout(blurTimer); // cancel any pending blur
+}, { passive: true });
+
+keyBar.addEventListener('touchmove', e => {
+  const dx = Math.abs(e.touches[0].clientX - keyBarTouchStartX);
+  if (dx > 8) keyBarScrolling = true;
+}, { passive: true });
+
+keyBar.addEventListener('touchend', e => {
+  keyBarTouching = false;
+  if (!keyBarScrolling) {
+    const btn = e.target.closest('.kbKey');
+    if (btn) handleKeyBarBtn(btn);
+  }
+  // Re-focus the textarea to keep soft keyboard open
+  kbCapture.focus();
+}, { passive: true });
+
+// ── Viewport resize: detect soft keyboard open/close ─────────────────────────
+if (window.visualViewport) {
+  let initialHeight = window.visualViewport.height;
+  window.visualViewport.addEventListener('resize', () => {
+    const vv = window.visualViewport;
+    const kbHeight = initialHeight - vv.height;
+    if (kbHeight > 100 && document.activeElement === kbCapture) {
+      app.classList.add('kb-open');
+      // Shrink the entire page to fit above the keyboard
+      document.documentElement.style.height = vv.height + 'px';
+    } else {
+      app.classList.remove('kb-open');
+      document.documentElement.style.height = '';
+    }
+  });
+  // Update baseline on orientation change
+  window.addEventListener('orientationchange', () => {
+    setTimeout(() => { initialHeight = window.visualViewport.height; }, 200);
+  });
+}
+
+// ── Toolbar buttons ───────────────────────────────────────────────────────────
+btnScroll.addEventListener('click', () => {
+  state.scrollMode = !state.scrollMode;
+  btnScroll.classList.toggle('active', state.scrollMode);
+});
+
+btnRightClick.addEventListener('click', () => {
+  state.nextRightClick = !state.nextRightClick;
+  btnRightClick.classList.toggle('active', state.nextRightClick);
+});
+
+btnFullscreen.addEventListener('click', async () => {
+  if (document.fullscreenElement) {
+    await document.exitFullscreen?.().catch(() => {});
+    return;
+  }
+  if (document.documentElement.requestFullscreen) {
+    await document.documentElement.requestFullscreen().catch(() => {});
+    return;
+  }
+  if (screen.webkitEnterFullscreen) {
+    try { screen.webkitEnterFullscreen(); return; } catch {}
+  }
+  if (navigator.standalone === false || !window.matchMedia('(display-mode: standalone)').matches) {
+    setStatus('Tap Share \u2192 Add to Home Screen for fullscreen', '');
+    setTimeout(() => { if (state.connected) setStatus('Connected', 'connected'); }, 4000);
+  }
+});
+
+btnDisconnect.addEventListener('click', () => {
+  disconnect();
+  setStatus('Not connected', '');
+  overlay.style.display = 'flex';
+  placeholder.style.display = 'flex';
+  connectBtn.disabled = false;
+});
+
+// ── Connect form ──────────────────────────────────────────────────────────────
+function parseHost(raw) {
+  try {
+    if (raw.includes('://')) return new URL(raw).host;
+    return raw.replace(/\/+$/, '');
+  } catch { return raw; }
+}
+
+async function handleConnect() {
+  const raw = hostInput.value.trim();
+  if (!raw) { showError('Please enter an address.'); return; }
+  const pw = passwordInput.value;
+  if (!pw) { showError('Password required.'); return; }
+  const host = parseHost(raw);
+  hostInput.value = host;
+  localStorage.setItem('macagent_host', host);
+  sessionStorage.setItem('macagent_pw', pw);
+  await connect(host, pw);
+}
+
+connectBtn.addEventListener('click', handleConnect);
+hostInput.addEventListener('keydown', e => { if (e.key === 'Enter') passwordInput.focus(); });
+passwordInput.addEventListener('keydown', e => { if (e.key === 'Enter') handleConnect(); });
+
+// ── Fullscreen change ─────────────────────────────────────────────────────────
+document.addEventListener('fullscreenchange', () => {
+  const isFs = !!document.fullscreenElement;
+  btnFullscreen.querySelector('svg').innerHTML = isFs
+    ? '<path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 0 2-2h3M3 16h3a2 2 0 0 0 2 2v3"/>'
+    : '<path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>';
+});
+</script>
+</body>
+</html>
