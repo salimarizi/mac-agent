@@ -260,8 +260,11 @@ function startSSH(cfg) {
 
 function startAgent(cfg) {
   return new Promise((resolve, reject) => {
+    const extraPaths = ['/opt/homebrew/bin', '/usr/local/bin', '/opt/local/bin'];
+    const currentPath = process.env.PATH || '';
     const env = {
       ...process.env,
+      PATH: [...extraPaths, currentPath].join(':'),
       MAC_AGENT_PASSWORD: cfg.password,
       MAC_AGENT_TURN_URL: cfg.turnUrl,
       MAC_AGENT_TURN_USER: cfg.turnUser,
