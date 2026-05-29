@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <title>Mac Remote</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --accent: #6C5CE7;
+      --accent-glow: rgba(108, 92, 231, 0.35);
+      --accent-light: #A29BFE;
+      --surface: rgba(18, 18, 24, 0.6);
+      --surface-elevated: rgba(32, 32, 44, 0.7);
+      --glass-border: rgba(255, 255, 255, 0.08);
+      --text: #F0F0F5;
+      --text-secondary: rgba(240, 240, 245, 0.45);
+      --danger: #FF6B6B;
+      --success: #51CF66;
+      --warn: #FFD43B;
+    }
+
+    html, body {
+      height: 100%;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      color: var(--text);
+      background: transparent;
+      overflow: hidden;
+      -webkit-app-region: drag;
+      user-select: none;
+    }
+
+    input, button, textarea, .log-area { -webkit-app-region: no-drag; }
+
+    #app {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      padding: 48px 20px 20px;
+      gap: 16px;
+    }
+
+    /* ── Header ── */
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .logo {
+      width: 48px; height: 48px;
+      border-radius: 14px;
+      background: linear-gradient(135deg, var(--accent), #a855f7);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 6px 24px var(--accent-glow);
+      flex-shrink: 0;
+    }
+
+    .header-text h1 {
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    .header-text p {
+      font-size: 12px;
+      color: var(--text-secondary);
+      margin-top: 2px;
+    }
+
+    /* ── Status pill ── */
+    .status-pill {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 14px;
+      border-radius: 12px;
+      background: var(--surface);
+      border: 1px solid var(--glass-border);
+      font-size: 13px;
+      font-weight: 500;
+    }
+
+    .status-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--text-secondary);
+      transition: background 0.4s, box-shadow 0.4s;
+    }
+    .status-dot.connected { background: var(--success); box-shadow: 0 0 8px rgba(81,207,102,0.5); }
+    .status-dot.connecting { background: var(--warn); box-shadow: 0 0 8px var(--warn); animation: pulse 1.4s ease-in-out infinite; }
+    .status-dot.error { background: var(--danger); box-shadow: 0 0 8px rgba(255,107,107,0.4); }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.3; transform: scale(0.85); }
+    }
+
+    /* ── Tabs ── */
+    .tabs {
+      display: flex;
+      gap: 2px;
+      background: var(--surface);
+      border-radius: 12px;
+      padding: 3px;
+      border: 1px solid var(--glass-border);
+    }
+
+    .tab {
+      flex: 1;
+      padding: 8px 0;
+      border: none;
+      border-radius: 10px;
+      background: transparent;
+      color: var(--text-secondary);
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .tab.active {
+      background: var(--surface-elevated);
+      color: var(--text);
+    }
+
+    /* ── Panels ── */
+    .panels {
+      flex: 1;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .panel {
+      display: none;
+      flex-direction: column;
+      gap: 10px;
+      height: 100%;
+      overflow-y: auto;
+    }
+    .panel.active { display: flex; }
+
+    /* ── Form ── */
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .form-row {
+      display: flex;
+      gap: 8px;
+    }
+    .form-row .form-group { flex: 1; }
+
+    label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    input[type="text"], input[type="password"], input[type="number"] {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1.5px solid var(--glass-border);
+      background: rgba(255, 255, 255, 0.04);
+      color: #fff;
+      font-family: inherit;
+      font-size: 14px;
+      font-weight: 500;
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-glow);
+    }
+    input::placeholder { color: var(--text-secondary); font-weight: 400; }
+
+    .section-label {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-secondary);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-top: 8px;
+      padding-bottom: 4px;
+      border-bottom: 1px solid var(--glass-border);
+    }
+
+    /* ── Buttons ── */
+    .btn-primary {
+      width: 100%;
+      padding: 14px;
+      border-radius: 14px;
+      border: none;
+      background: linear-gradient(135deg, var(--accent), #8B5CF6);
+      color: #fff;
+      font-family: inherit;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.2s, transform 0.15s;
+      box-shadow: 0 4px 24px var(--accent-glow);
+      margin-top: auto;
+      flex-shrink: 0;
+    }
+    .btn-primary:active { transform: scale(0.97); }
+    .btn-primary:disabled { opacity: 0.35; cursor: not-allowed; transform: none; box-shadow: none; }
+
+    .btn-danger {
+      width: 100%;
+      padding: 14px;
+      border-radius: 14px;
+      border: 1.5px solid rgba(255,107,107,0.3);
+      background: rgba(255,107,107,0.08);
+      color: var(--danger);
+      font-family: inherit;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.2s, transform 0.15s;
+      margin-top: auto;
+      flex-shrink: 0;
+    }
+    .btn-danger:active { transform: scale(0.97); }
+
+    /* ── Log area ── */
+    .log-area {
+      flex: 1;
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid var(--glass-border);
+      border-radius: 12px;
+      padding: 12px;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 11px;
+      line-height: 1.6;
+      color: var(--text-secondary);
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    .log-area .log-line { margin-bottom: 2px; }
+    .log-area .log-error { color: var(--danger); }
+    .log-area .log-success { color: var(--success); }
+
+    /* ── Connection info ── */
+    .connect-info {
+      padding: 14px;
+      border-radius: 12px;
+      background: var(--surface);
+      border: 1px solid var(--glass-border);
+      text-align: center;
+    }
+
+    .connect-url {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--accent-light);
+      word-break: break-all;
+    }
+
+    .connect-label {
+      font-size: 11px;
+      color: var(--text-secondary);
+      margin-bottom: 4px;
+    }
+
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <div class="header">
+    <div class="logo">
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="2" y="3" width="20" height="14" rx="2"/>
+        <path d="M8 21h8M12 17v4"/>
+      </svg>
+    </div>
+    <div class="header-text">
+      <h1>Mac Remote</h1>
+      <p>Remote desktop control</p>
+    </div>
+  </div>
+
+  <div class="status-pill">
+    <div class="status-dot" id="statusDot"></div>
+    <span id="statusText">Disconnected</span>
+  </div>
+
+  <div class="tabs">
+    <button class="tab active" data-tab="connection">Connection</button>
+    <button class="tab" data-tab="settings">Settings</button>
+    <button class="tab" data-tab="logs">Logs</button>
+  </div>
+
+  <div class="panels">
+
+    <!-- Connection tab -->
+    <div class="panel active" id="panel-connection">
+      <div class="section-label">VPS Server</div>
+      <div class="form-row">
+        <div class="form-group" style="flex:3">
+          <label>Host / IP</label>
+          <input type="text" id="vpsHost" placeholder="your-vps-ip" />
+        </div>
+        <div class="form-group" style="flex:1">
+          <label>Port</label>
+          <input type="text" id="vpsPort" placeholder="22" />
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>SSH User</label>
+          <input type="text" id="vpsUser" placeholder="root" />
+        </div>
+        <div class="form-group">
+          <label>Tunnel Port</label>
+          <input type="text" id="tunnelPort" placeholder="9443" />
+        </div>
+      </div>
+
+      <div class="section-label">Authentication</div>
+      <div class="form-group">
+        <label>Access Password</label>
+        <input type="password" id="password" placeholder="Password for iPhone connection" />
+      </div>
+
+      <div class="section-label">TURN Server</div>
+      <div class="form-group">
+        <label>TURN URL</label>
+        <input type="text" id="turnUrl" placeholder="turn:remote.example.com:3478" />
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Username</label>
+          <input type="text" id="turnUser" placeholder="turnuser" />
+        </div>
+        <div class="form-group">
+          <label>Password</label>
+          <input type="password" id="turnPass" placeholder="turnpass" />
+        </div>
+      </div>
+
+      <div id="connectInfo" class="connect-info" style="display:none">
+        <div class="connect-label">Connect from your iPhone at</div>
+        <div class="connect-url" id="connectUrl"></div>
+      </div>
+
+      <button class="btn-primary" id="btnStart">Start</button>
+      <button class="btn-danger" id="btnStop" style="display:none">Stop</button>
+    </div>
+
+    <!-- Settings tab -->
+    <div class="panel" id="panel-settings">
+      <div class="section-label">Capture</div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Screen Index</label>
+          <input type="text" id="screenIndex" placeholder="0" />
+        </div>
+        <div class="form-group">
+          <label>FPS</label>
+          <input type="text" id="fps" placeholder="30" />
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Width</label>
+          <input type="text" id="width" placeholder="1600" />
+        </div>
+        <div class="form-group">
+          <label>Bitrate</label>
+          <input type="text" id="bitrate" placeholder="6M" />
+        </div>
+      </div>
+    </div>
+
+    <!-- Logs tab -->
+    <div class="panel" id="panel-logs">
+      <div class="log-area" id="logArea"></div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  const fields = ['vpsHost','vpsUser','vpsPort','tunnelPort','password','turnUrl','turnUser','turnPass','screenIndex','fps','width','bitrate'];
+  const $ = id => document.getElementById(id);
+
+  const statusDot = $('statusDot');
+  const statusText = $('statusText');
+  const btnStart = $('btnStart');
+  const btnStop = $('btnStop');
+  const logArea = $('logArea');
+  const connectInfo = $('connectInfo');
+  const connectUrl = $('connectUrl');
+
+  // ── Tabs ──
+
+  document.querySelectorAll('.tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+      tab.classList.add('active');
+      $('panel-' + tab.dataset.tab).classList.add('active');
+    });
+  });
+
+  // ── Load config ──
+
+  async function loadConfig() {
+    const cfg = await window.api.getConfig();
+    fields.forEach(f => {
+      if ($(f)) $(f).value = cfg[f] || '';
+    });
+  }
+
+  function getFormConfig() {
+    const cfg = {};
+    fields.forEach(f => { cfg[f] = $(f).value.trim(); });
+    return cfg;
+  }
+
+  // ── Status ──
+
+  function setStatus(state) {
+    statusDot.className = 'status-dot ' + state;
+    const labels = {
+      disconnected: 'Disconnected',
+      connecting: 'Connecting...',
+      connected: 'Connected',
+      error: 'Connection Failed',
+    };
+    statusText.textContent = labels[state] || state;
+
+    if (state === 'connected') {
+      btnStart.style.display = 'none';
+      btnStop.style.display = 'block';
+      connectInfo.style.display = 'block';
+      const host = $('vpsHost').value.trim();
+      connectUrl.textContent = 'https://' + (host.includes('.') ? host.replace(/:\d+$/, '') : host);
+      // Try to construct a nice URL
+      const turn = $('turnUrl').value.trim();
+      if (turn) {
+        const domain = turn.replace(/^turn:/, '').replace(/:\d+$/, '');
+        if (domain.includes('.')) connectUrl.textContent = 'https://' + domain;
+      }
+    } else {
+      connectInfo.style.display = 'none';
+      if (state === 'disconnected' || state === 'error') {
+        btnStart.style.display = 'block';
+        btnStop.style.display = 'none';
+        btnStart.disabled = false;
+      }
+    }
+  }
+
+  // ── Logs ──
+
+  function addLog(msg) {
+    const line = document.createElement('div');
+    line.className = 'log-line';
+    if (msg.includes('[Error]') || msg.includes('Error') || msg.includes('failed')) {
+      line.classList.add('log-error');
+    } else if (msg.includes('running') || msg.includes('established') || msg.includes('complete')) {
+      line.classList.add('log-success');
+    }
+    const time = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    line.textContent = `[${time}] ${msg}`;
+    logArea.appendChild(line);
+    logArea.scrollTop = logArea.scrollHeight;
+  }
+
+  // ── Actions ──
+
+  btnStart.addEventListener('click', async () => {
+    const cfg = getFormConfig();
+    if (!cfg.vpsHost) { $('vpsHost').focus(); return; }
+    if (!cfg.password) { $('password').focus(); return; }
+
+    btnStart.disabled = true;
+    btnStart.textContent = 'Connecting...';
+
+    // Check if binary exists
+    const hasBin = await window.api.checkBinary();
+    if (!hasBin) {
+      addLog('Binary not found, building...');
+      const built = await window.api.buildBinary();
+      if (!built) {
+        addLog('[Error] Build failed. Make sure Go is installed.');
+        btnStart.disabled = false;
+        btnStart.textContent = 'Start';
+        return;
+      }
+    }
+
+    const result = await window.api.start(cfg);
+    if (!result.ok) {
+      addLog('[Error] ' + result.error);
+      btnStart.disabled = false;
+      btnStart.textContent = 'Start';
+    } else {
+      btnStart.textContent = 'Start';
+    }
+  });
+
+  btnStop.addEventListener('click', async () => {
+    await window.api.stop();
+  });
+
+  // ── IPC listeners ──
+
+  window.api.onStatus(setStatus);
+  window.api.onLog(addLog);
+
+  // ── Init ──
+
+  loadConfig().then(async () => {
+    const status = await window.api.getStatus();
+    setStatus(status);
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,29 @@
+{
+  "name": "mac-remote",
+  "version": "1.0.0",
+  "description": "Mac Remote Control — Desktop Launcher",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build-go": "cd .. && CGO_ENABLED=1 go build -o desktop/bin/mac-agent .",
+    "dist": "npm run build-go && electron-builder"
+  },
+  "build": {
+    "appId": "com.salimarizi.mac-remote",
+    "productName": "Mac Remote",
+    "mac": {
+      "category": "public.app-category.utilities",
+      "target": "dmg",
+      "extraResources": ["bin/mac-agent"]
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "index.html"
+    ]
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0"
+  }
+}

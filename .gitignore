@@ -20,3 +20,8 @@ Thumbs.db
 .vscode/
 *.swp
 *.swo
+
+# Electron
+desktop/node_modules/
+desktop/bin/
+desktop/dist/
