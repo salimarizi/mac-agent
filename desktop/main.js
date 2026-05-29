@@ -139,10 +139,7 @@ function createWindow() {
     minWidth: 420,
     minHeight: 600,
     titleBarStyle: 'hiddenInset',
-    vibrancy: 'under-window',
-    visualEffectState: 'active',
-    backgroundColor: '#00000000',
-    transparent: true,
+    backgroundColor: '#1a1a2e',
     resizable: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
