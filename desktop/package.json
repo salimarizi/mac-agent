@@ -14,7 +14,9 @@
     "mac": {
       "category": "public.app-category.utilities",
       "target": "dmg",
-      "extraResources": ["bin/mac-agent"]
+      "extraResources": [
+        "bin/mac-agent"
+      ]
     },
     "files": [
       "main.js",
@@ -23,7 +25,7 @@
     ]
   },
   "devDependencies": {
-    "electron": "^33.0.0",
-    "electron-builder": "^25.0.0"
+    "electron": "^41.7.1",
+    "electron-builder": "^26.8.1"
   }
 }
