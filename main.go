@@ -17,10 +17,16 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"flag"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"strings"
+	"syscall"
+	"time"
 
 	"github.com/pion/webrtc/v4"
 
@@ -36,6 +42,17 @@ func envOrFlag(envKey string, flagVal *string) string {
 	return *flagVal
 }
 
+// splitList parses a comma-separated value into trimmed, non-empty entries.
+func splitList(s string) []string {
+	var out []string
+	for part := range strings.SplitSeq(s, ",") {
+		if p := strings.TrimSpace(part); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 func main() {
 	addr := flag.String("addr", ":8443", "listen address")
 	screen := flag.String("screen", "0", "display index (0 = main display, 1 = second display, …)")
@@ -46,7 +63,8 @@ func main() {
 	webRoot := flag.String("web", "", "optional dir of static client files to serve at /")
 	sensitivity := flag.Float64("sensitivity", 1.6, "trackpad move multiplier")
 	password := flag.String("password", "", "access password (prefer MAC_AGENT_PASSWORD env)")
-	turnURL := flag.String("turn", "", "TURN url (prefer MAC_AGENT_TURN_URL env)")
+	turnURL := flag.String("turn", "", "comma-separated TURN urls (prefer MAC_AGENT_TURN_URL env)")
+	stunURLs := flag.String("stun", "stun:stun.l.google.com:19302,stun:stun.cloudflare.com:3478", "comma-separated STUN urls")
 	turnUser := flag.String("turn-user", "", "TURN username (prefer MAC_AGENT_TURN_USER env)")
 	turnPass := flag.String("turn-pass", "", "TURN credential (prefer MAC_AGENT_TURN_PASS env)")
 	tlsCert := flag.String("tls-cert", "", "TLS certificate file for HTTPS")
@@ -63,15 +81,28 @@ func main() {
 	tPass := envOrFlag("MAC_AGENT_TURN_PASS", turnPass)
 
 	iceServers := []webrtc.ICEServer{
-		{URLs: []string{"stun:stun.l.google.com:19302"}},
+		{URLs: splitList(envOrFlag("MAC_AGENT_STUN_URLS", stunURLs))},
 	}
-	if turn != "" {
+	// One entry per TURN transport. Listing udp/tcp/tls separately means a network
+	// that blocks UDP 3478 still has a TCP and a TLS-on-5349 path to fall back to.
+	if urls := splitList(turn); len(urls) > 0 {
 		iceServers = append(iceServers, webrtc.ICEServer{
-			URLs:       []string{turn},
+			URLs:       urls,
 			Username:   tUser,
 			Credential: tPass,
 		})
+		log.Printf("ICE: %d TURN url(s) configured: %s", len(urls), strings.Join(urls, " "))
+	} else {
+		log.Print("ICE: no TURN configured — connections from mobile data will likely fail")
 	}
+
+	ctx, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stopSignals()
+
+	// robotgo tolerates exactly one calling goroutine, so the dispatch loop is
+	// owned by the process rather than by whichever session happens to be live.
+	ctrl := input.New(*sensitivity)
+	go ctrl.Run(ctx.Done())
 
 	srv := &signaling.Server{
 		ICEServers: iceServers,
@@ -82,7 +113,7 @@ func main() {
 			Bitrate:     *bitrate,
 			FFmpegPath:  *ffmpegPath,
 		},
-		Input:    input.New(*sensitivity),
+		Input:    ctrl,
 		WebRoot:  *webRoot,
 		Password: pw,
 	}
@@ -93,14 +124,36 @@ func main() {
 	log.Printf("mac-agent listening on %s (screen=%s fps=%d width=%d)", *addr, *screen, *fps, *width)
 	log.Print("NOTE: grant Screen Recording AND Accessibility permission to this binary/terminal.")
 
+	// No WriteTimeout/ReadTimeout: they would kill long-lived WebSocket sessions.
+	// Liveness is handled by the signaling layer's ping/pong instead.
+	httpSrv := &http.Server{
+		Addr:              *addr,
+		Handler:           srv.Handler(),
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
+
+	// launchd stops us with SIGTERM. Releasing the viewer first tears down its
+	// ffmpeg; exiting without that leaves the encoder orphaned, still holding the
+	// screen-recording device against the next start.
+	go func() {
+		<-ctx.Done()
+		log.Print("shutting down")
+		srv.Shutdown()
+		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = httpSrv.Shutdown(shutCtx)
+	}()
+
+	var err error
 	if tls != "" && tlsK != "" {
 		log.Print("TLS enabled")
-		if err := http.ListenAndServeTLS(*addr, tls, tlsK, srv.Handler()); err != nil {
-			log.Fatalf("server: %v", err)
-		}
+		err = httpSrv.ListenAndServeTLS(tls, tlsK)
 	} else {
-		if err := http.ListenAndServe(*addr, srv.Handler()); err != nil {
-			log.Fatalf("server: %v", err)
-		}
+		err = httpSrv.ListenAndServe()
 	}
+	if err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.Fatalf("server: %v", err)
+	}
+	log.Print("stopped")
 }

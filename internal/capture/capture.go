@@ -94,6 +94,10 @@ import (
 	"github.com/pion/webrtc/v4/pkg/media/h264reader"
 )
 
+// repeatInterval throttles re-sending the last frame while the display is
+// unavailable: enough to keep the stream alive, cheap enough to idle on.
+const repeatInterval = 500 * time.Millisecond
+
 // Config controls the capture pipeline.
 type Config struct {
 	// ScreenIndex is the CGGetActiveDisplayList index: "0" = main display,
@@ -223,6 +227,10 @@ func Start(ctx context.Context, cfg Config) (<-chan []byte, error) {
 		return nil, fmt.Errorf("stdout pipe: %w", err)
 	}
 	cmd.Stderr = logWriter{}
+	// Without this, Wait blocks on the stdout pipe after a context cancel and the
+	// ffmpeg process is left for the OS to reap — which across restarts stacks up
+	// encoders all holding the screen-capture device.
+	cmd.WaitDelay = 5 * time.Second
 
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("start ffmpeg: %w", err)
@@ -240,6 +248,8 @@ func Start(ctx context.Context, cfg Config) (<-chan []byte, error) {
 		defer ticker.Stop()
 
 		frameBuf := make([]byte, frameW*frameH*4)
+		var haveFrame bool
+		var lastRepeat time.Time
 
 		for {
 			select {
@@ -248,16 +258,38 @@ func Start(ctx context.Context, cfg Config) (<-chan []byte, error) {
 			case <-ticker.C:
 				var fw, fh C.int
 				cbuf := C.captureFrame(C.int(displayIdx), C.int(cfg.Width), &fw, &fh)
+
+				// A locked or sleeping display returns nothing. Re-sending the
+				// last frame keeps RTP flowing so the peer connection does not
+				// time out while the Mac is idle — but at a trickle, since the
+				// screen is by definition not changing.
 				if cbuf == nil {
+					if !haveFrame || time.Since(lastRepeat) < repeatInterval {
+						continue
+					}
+					lastRepeat = time.Now()
+					if _, err := stdin.Write(frameBuf); err != nil {
+						return
+					}
 					continue
 				}
-				size := int(fw) * int(fh) * 4
-				if size != len(frameBuf) {
-					frameBuf = make([]byte, size)
+
+				// ffmpeg was started with a fixed -video_size. Once the geometry
+				// changes (display unplugged, resolution switched, Sidecar) every
+				// later frame is misaligned garbage, so end the pipeline and let
+				// the viewer reconnect into a correctly sized one.
+				if int(fw)*int(fh)*4 != len(frameBuf) {
+					C.free(unsafe.Pointer(cbuf))
+					log.Printf("capture: display geometry changed to %dx%d, restarting pipeline", int(fw), int(fh))
+					return
 				}
+
+				size := int(fw) * int(fh) * 4
 				src := (*[1 << 28]byte)(unsafe.Pointer(cbuf))[:size:size]
 				copy(frameBuf, src)
 				C.free(unsafe.Pointer(cbuf))
+				haveFrame = true
+				lastRepeat = time.Now()
 
 				if _, err := stdin.Write(frameBuf); err != nil {
 					return

@@ -588,7 +588,28 @@ const state = {
   connected: false,
   scrollMode: false,
   nextRightClick: false,
+  // Reconnect supervision: wantConnected stays true until the user explicitly
+  // disconnects, so a dropped Wi-Fi/cellular link retries on its own.
+  wantConnected: false,
+  host: null,
+  password: null,
+  retryAttempt: 0,
+  retryTimer: null,
+  stallTimer: null,
+  streamRestarts: 0,
 };
+
+const RETRY_BASE_MS = 800;
+const RETRY_MAX_MS = 15000;
+
+// Stall detection. WebRTC happily reports "connected" while the picture is
+// frozen — a dead encoder, a black-holed relay — so decoded frames, not the
+// connection state, are what tell us the stream is actually alive.
+const STALL_CHECK_MS = 2000;
+const STALL_MS = 6000;
+// After this many in-place restarts the pipeline is not the problem; drop the
+// socket and rebuild everything instead of asking for offer after offer.
+const MAX_STREAM_RESTARTS = 3;
 
 // ── Zoom / pan state ──────────────────────────────────────────────────────────
 const zoom = {
@@ -738,9 +759,134 @@ function dcSend(obj) {
 }
 
 // ── Connect ───────────────────────────────────────────────────────────────────
-async function connect(host, password) {
-  disconnect();
+function cancelRetry() {
+  if (state.retryTimer) {
+    clearTimeout(state.retryTimer);
+    state.retryTimer = null;
+  }
+}
+
+function scheduleReconnect(reason) {
+  if (!state.wantConnected || state.retryTimer) return;
+  const delay = Math.min(RETRY_BASE_MS * 2 ** state.retryAttempt, RETRY_MAX_MS);
+  state.retryAttempt++;
+  setStatus(`Reconnecting in ${Math.round(delay / 100) / 10}s\u2026`, 'connecting');
+  if (reason) showError(reason);
+  state.retryTimer = setTimeout(() => {
+    state.retryTimer = null;
+    if (state.wantConnected) connect(state.host, state.password, true);
+  }, delay);
+}
+
+// ── Stall watchdog ───────────────────────────────────────────────────────────
+function stopStallWatch() {
+  if (state.stallTimer) {
+    clearInterval(state.stallTimer);
+    state.stallTimer = null;
+  }
+}
+
+function startStallWatch(pc) {
+  stopStallWatch();
+  let lastFrames = -1;
+  let lastProgress = Date.now();
+
+  state.stallTimer = setInterval(async () => {
+    if (state.pc !== pc) { stopStallWatch(); return; }
+    // A backgrounded tab stops decoding by design, and iOS throttles our timer
+    // on top of that — neither is a stall.
+    if (!state.connected || document.visibilityState !== 'visible') {
+      lastProgress = Date.now();
+      return;
+    }
+
+    let frames = null;
+    try {
+      const report = await pc.getStats();
+      report.forEach(s => {
+        if (s.type === 'inbound-rtp' && s.kind === 'video' && typeof s.framesDecoded === 'number') {
+          frames = s.framesDecoded;
+        }
+      });
+    } catch { return; }
+    if (frames === null) return;
+
+    if (frames !== lastFrames) {
+      lastFrames = frames;
+      lastProgress = Date.now();
+      state.streamRestarts = 0;
+      return;
+    }
+    if (Date.now() - lastProgress > STALL_MS) {
+      restartStream('Video stalled — restarting the stream.');
+    }
+  }, STALL_CHECK_MS);
+}
+
+// restartStream asks the agent for a fresh offer over the socket we already have
+// authenticated. Rebuilding just the media path recovers from an encoder death in
+// about a second, where a full reconnect costs a handshake and a backoff wait.
+function restartStream(reason) {
+  stopStallWatch();
+  if (state.pc) { try { state.pc.close(); } catch {} state.pc = null; }
+  state.dc = null;
+  state.connected = false;
+  screen.srcObject = null;
+  cursor.classList.remove('visible');
+  placeholder.style.display = 'flex';
+  if (reason) showError(reason);
+
+  const socketUsable = state.ws && state.ws.readyState === WebSocket.OPEN;
+  if (socketUsable && state.streamRestarts < MAX_STREAM_RESTARTS) {
+    state.streamRestarts++;
+    setStatus('Restarting stream…', 'connecting');
+    wsSend('hello');
+    return;
+  }
+  state.streamRestarts = 0;
+  if (state.ws) {
+    try { state.ws.close(); } catch {}   // onclose schedules the reconnect
+  } else {
+    scheduleReconnect(reason);
+  }
+}
+
+// Coming back to the foreground (phone unlocked, tab reselected) is the moment a
+// stale socket gets discovered, so retry straight away rather than waiting out a
+// backoff the user never saw.
+function reconnectNow() {
+  if (!state.wantConnected) return;
+  if (state.connected) {
+    // Still connected, but iOS pauses the element when the tab goes away.
+    screen.play().catch(() => {});
+    return;
+  }
+  cancelRetry();
+  state.retryAttempt = 0;
+  connect(state.host, state.password, true);
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') reconnectNow();
+});
+window.addEventListener('online', reconnectNow);
+
+// Closing the tab or backgrounding the browser must hand the viewer slot back,
+// otherwise the agent holds the session until its ping timeout expires.
+window.addEventListener('pagehide', () => {
+  if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+    try { state.ws.close(1000, 'client closed'); } catch {}
+  }
+});
+
+async function connect(host, password, isRetry) {
+  teardownPeer();
+  cancelRetry();
   showError('');
+  state.wantConnected = true;
+  state.host = host;
+  state.password = password;
+  if (!isRetry) state.retryAttempt = 0;
   setStatus('Connecting\u2026', 'connecting');
   connectBtn.disabled = true;
 
@@ -775,10 +921,27 @@ async function connect(host, password) {
         wsSend('hello');
         break;
       case 'auth_fail':
+        // A wrong password will never fix itself; stop retrying.
+        state.wantConnected = false;
+        cancelRetry();
         showError(msg.payload?.message || 'Authentication failed');
         setStatus('Auth failed', 'error');
         connectBtn.disabled = false;
         sessionStorage.removeItem('macagent_pw');
+        ws.close();
+        return;
+      case 'session_ended':
+        // The agent released the capture pipeline (encoder died, display
+        // changed). The socket is still good, so just ask for a new offer.
+        if (state.wantConnected) restartStream(msg.payload?.message || 'Stream ended, restarting.');
+        break;
+      case 'evicted':
+        // Another device took the session; retrying would fight it for the slot.
+        state.wantConnected = false;
+        cancelRetry();
+        showError('Session taken over by another device.');
+        setStatus('Disconnected', 'error');
+        connectBtn.disabled = false;
         ws.close();
         return;
       case 'offer':
@@ -796,24 +959,34 @@ async function connect(host, password) {
     }
   };
 
+  // onerror always precedes onclose, so leave the retry decision to onclose.
   ws.onerror = () => {
-    setStatus('Connection failed', 'error');
-    showError(`Could not reach ${host}`);
     connectBtn.disabled = false;
   };
 
   ws.onclose = () => {
-    if (state.connected) {
-      setStatus('Disconnected', 'error');
-      state.connected = false;
-    }
+    if (state.ws === ws) state.ws = null;
+    state.connected = false;
+    stopStallWatch();
     connectBtn.disabled = false;
     overlay.style.display = 'flex';
     placeholder.style.display = 'flex';
+    cursor.classList.remove('visible');
+
+    if (state.wantConnected) {
+      scheduleReconnect(`Lost connection to ${host}.`);
+    } else {
+      setStatus('Not connected', '');
+    }
   };
 }
 
 async function handleOffer(offer) {
+  // A re-offer (stream restart) must not leave the previous peer connection
+  // running — it would keep an ICE agent and a decoder alive for nothing.
+  stopStallWatch();
+  if (state.pc) { try { state.pc.close(); } catch {} }
+
   const pc = new RTCPeerConnection({ iceServers: serverICE });
   state.pc = pc;
 
@@ -825,17 +998,32 @@ async function handleOffer(offer) {
     const s = pc.connectionState;
     if (s === 'connected') {
       state.connected = true;
+      state.retryAttempt = 0;
       setStatus('Connected', 'connected');
       overlay.style.display = 'none';
       placeholder.style.display = 'none';
       cursor.classList.add('visible');
       updateCursorDisplay();
-    } else if (s === 'failed' || s === 'disconnected' || s === 'closed') {
-      setStatus(s === 'failed' ? 'Connection failed' : 'Disconnected', 'error');
+      startStallWatch(pc);
+    } else if (s === 'disconnected') {
+      // Transient on mobile — the ICE agent usually recovers without help, so
+      // keep the video element and the session alive and just say so.
       state.connected = false;
+      setStatus('Reconnecting…', 'connecting');
+    } else if (s === 'failed' || s === 'closed') {
+      state.connected = false;
+      stopStallWatch();
       overlay.style.display = 'flex';
       placeholder.style.display = 'flex';
       cursor.classList.remove('visible');
+      if (state.wantConnected) {
+        // ICE is unrecoverable; drop the socket so the supervisor rebuilds the
+        // whole session from a fresh offer.
+        if (state.ws) { try { state.ws.close(); } catch {} }
+        else scheduleReconnect('Media connection failed.');
+      } else {
+        setStatus('Disconnected', 'error');
+      }
     }
   };
 
@@ -854,6 +1042,9 @@ async function handleOffer(offer) {
 
   pc.ontrack = ({ streams }) => {
     screen.srcObject = streams[0];
+    // Safari leaves the element paused when a stream is attached outside a user
+    // gesture, which looks exactly like a frozen connection.
+    screen.play().catch(() => {});
   };
 
   await pc.setRemoteDescription(offer);
@@ -862,12 +1053,26 @@ async function handleOffer(offer) {
   wsSend('answer', answer);
 }
 
-function disconnect() {
-  if (state.pc)  { state.pc.close();  state.pc  = null; }
-  if (state.ws)  { state.ws.close();  state.ws  = null; }
+// teardownPeer drops the current peer/socket without giving up on reconnecting.
+function teardownPeer() {
+  stopStallWatch();
+  state.streamRestarts = 0;
+  if (state.pc) { state.pc.close(); state.pc = null; }
+  if (state.ws) {
+    state.ws.onclose = null;
+    state.ws.close();
+    state.ws = null;
+  }
   state.dc = null;
   state.connected = false;
   screen.srcObject = null;
+}
+
+// disconnect is the user asking to stop; it also stops the retry loop.
+function disconnect() {
+  state.wantConnected = false;
+  cancelRetry();
+  teardownPeer();
 }
 
 // ── Mouse input (desktop) ─────────────────────────────────────────────────────

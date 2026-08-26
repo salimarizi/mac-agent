@@ -80,14 +80,40 @@ export MAC_AGENT_TURN_PASS="turnpassword"
 
 Open `https://remote.yourdomain.com`, enter the password.
 
+### Running it unattended
+
+`scripts/install-service.sh` installs a launchd user agent that keeps the agent
+and the reverse tunnel running as one supervised unit — restarting them after a
+crash, a network drop, or a reboot. Fill in `.env` first (see `.env.example`).
+
+```bash
+scripts/install-service.sh          # install + start
+tail -f ~/Library/Logs/MacRemote/mac-remote.log
+scripts/uninstall-service.sh        # stop + remove
+```
+
+The service does **not** run from the checkout. launchd agents get no TCC grant
+for `~/Documents`, `~/Desktop` or `~/Downloads`, so a checkout in any of those is
+unreadable to the job and it dies with `Operation not permitted` before the
+script starts. The installer stages the binary, `client/`, and `.env` into
+`~/Library/Application Support/MacRemote` and points launchd there — so **re-run
+the installer after changing `.env`, the client, or the Go code**.
+
 ## Environment variables
 
 | Variable | Required | Description |
 |---|---|---|
 | `MAC_AGENT_PASSWORD` | Yes | Access password |
-| `MAC_AGENT_TURN_URL` | No | TURN server URL, e.g. `turn:host:3478` |
+| `MAC_AGENT_TURN_URL` | No | TURN URLs, comma-separated — list udp/tcp/tls so a network that blocks UDP 3478 still has a fallback |
 | `MAC_AGENT_TURN_USER` | No | TURN username |
 | `MAC_AGENT_TURN_PASS` | No | TURN credential |
+| `MAC_AGENT_STUN_URLS` | No | STUN URLs, comma-separated (defaults to Google + Cloudflare) |
+| `MAC_AGENT_TLS_CERT` | No | TLS certificate for serving HTTPS directly |
+| `MAC_AGENT_TLS_KEY` | No | TLS private key |
+
+The tunnel and capture settings in `.env.example` (`MAC_AGENT_VPS_*`,
+`MAC_AGENT_SSH_KEY`, `MAC_AGENT_DOMAIN`, `MAC_AGENT_FPS`, …) are read by the
+supervisor script, not by the agent itself.
 
 ## Command-line flags
 

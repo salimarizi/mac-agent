@@ -18,6 +18,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -47,15 +48,45 @@ type Server struct {
 	Input      *input.Controller
 	WebRoot    string // optional: directory of static client files to serve at /
 	Password   string // required: checked with constant-time compare
+
+	viewers   atomic.Int64
+	startedAt time.Time
+	startOnce sync.Once
+
+	// active is the single viewer allowed to hold a session at a time.
+	mu     sync.Mutex
+	active *conn
 }
+
+// WebSocket liveness. Mobile networks and the nginx hop in front of us both drop
+// idle sockets silently; pinging keeps them open and surfaces a dead peer within
+// pongWait instead of leaving a zombie session holding the capture pipeline.
+const (
+	pongWait   = 30 * time.Second
+	pingPeriod = 10 * time.Second
+	writeWait  = 10 * time.Second
+	// evictWait bounds how long a new viewer waits for the old one's capture to
+	// stop before starting its own.
+	evictWait = 3 * time.Second
+)
 
 // conn wraps a websocket with a write mutex (gorilla writes aren't concurrent-safe).
 type conn struct {
-	ws   *websocket.Conn
-	wmu  sync.Mutex
-	sess *session.Session
+	ws  *websocket.Conn
+	wmu sync.Mutex
+
+	// sessMu guards sess/capCancel. A session can die on a pion callback goroutine
+	// at the same moment the reader goroutine is replacing it.
+	sessMu sync.Mutex
+	sess   *session.Session
 	// capCancel stops the ffmpeg pipeline for this connection.
 	capCancel context.CancelFunc
+	// done closes when teardown begins, stopping the ping loop.
+	done     chan struct{}
+	doneOnce sync.Once
+	// gone closes once teardown has finished and the capture pipeline is released.
+	gone     chan struct{}
+	goneOnce sync.Once
 }
 
 func (c *conn) send(kind string, payload any) {
@@ -67,9 +98,105 @@ func (c *conn) send(kind string, payload any) {
 	env, _ := json.Marshal(message{Type: kind, Payload: b})
 	c.wmu.Lock()
 	defer c.wmu.Unlock()
+	_ = c.ws.SetWriteDeadline(time.Now().Add(writeWait))
 	if err := c.ws.WriteMessage(websocket.TextMessage, env); err != nil {
 		log.Printf("signaling: write %s: %v", kind, err)
 	}
+}
+
+// keepalive pings the viewer until the connection is torn down. A failed write
+// closes the socket, which unblocks the reader in handleWS.
+func (c *conn) keepalive() {
+	ticker := time.NewTicker(pingPeriod)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-c.done:
+			return
+		case <-ticker.C:
+			c.wmu.Lock()
+			_ = c.ws.SetWriteDeadline(time.Now().Add(writeWait))
+			err := c.ws.WriteMessage(websocket.PingMessage, nil)
+			c.wmu.Unlock()
+			if err != nil {
+				log.Printf("signaling: ping: %v", err)
+				_ = c.ws.Close()
+				return
+			}
+		}
+	}
+}
+
+func (c *conn) session() *session.Session {
+	c.sessMu.Lock()
+	defer c.sessMu.Unlock()
+	return c.sess
+}
+
+func (c *conn) closeDone() {
+	c.doneOnce.Do(func() { close(c.done) })
+}
+
+func (c *conn) closeGone() {
+	c.goneOnce.Do(func() { close(c.gone) })
+}
+
+// adopt makes c the one active viewer and evicts whoever held the slot. A phone
+// that closed its browser without a clean WebSocket close leaves a socket the OS
+// never reports as dead, so without this the old session keeps the capture
+// pipeline pinned and the next connect looks like the Mac is busy.
+func (s *Server) adopt(c *conn) {
+	s.mu.Lock()
+	prev := s.active
+	s.active = c
+	s.mu.Unlock()
+
+	if prev == nil || prev == c {
+		return
+	}
+
+	log.Print("signaling: evicting previous viewer for a new connection")
+	prev.send("evicted", map[string]string{"message": "replaced by a newer connection"})
+	prev.closeDone()
+	// Closing the socket unblocks the old reader, so its deferred teardown runs.
+	_ = prev.ws.Close()
+
+	select {
+	case <-prev.gone:
+	case <-time.After(evictWait):
+		log.Print("signaling: previous viewer did not release in time, continuing")
+	}
+}
+
+// Shutdown closes the active viewer so its capture pipeline is released before
+// the process exits. A hijacked WebSocket is invisible to http.Server.Shutdown,
+// so without this the ffmpeg behind it outlives the agent and keeps holding the
+// screen-recording device.
+func (s *Server) Shutdown() {
+	s.mu.Lock()
+	c := s.active
+	s.mu.Unlock()
+	if c == nil {
+		return
+	}
+	log.Print("signaling: closing active viewer for shutdown")
+	c.closeDone()
+	_ = c.ws.Close()
+	select {
+	case <-c.gone:
+	case <-time.After(evictWait):
+		log.Print("signaling: viewer did not release in time")
+	}
+}
+
+// release clears the active slot, but only if c still owns it — an evicted
+// connection must not clear the newer viewer that replaced it.
+func (s *Server) release(c *conn) {
+	s.mu.Lock()
+	if s.active == c {
+		s.active = nil
+	}
+	s.mu.Unlock()
 }
 
 // --- Rate limiter for auth attempts ---
@@ -77,11 +204,16 @@ func (c *conn) send(kind string, payload any) {
 const (
 	maxAuthFails  = 5
 	blockDuration = 30 * time.Second
+	// entryTTL bounds how long an idle entry is kept. The agent is reachable from
+	// the internet, so a scanner walking through source addresses would otherwise
+	// grow this map for as long as the process runs.
+	entryTTL = 10 * time.Minute
 )
 
 type rlEntry struct {
 	fails      int
 	blockUntil time.Time
+	last       time.Time
 }
 
 type rateLimiter struct {
@@ -110,14 +242,23 @@ func (r *rateLimiter) allowed(ip string) bool {
 func (r *rateLimiter) fail(ip string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	now := time.Now()
+	for k, v := range r.entries {
+		if now.Sub(v.last) > entryTTL && now.After(v.blockUntil) {
+			delete(r.entries, k)
+		}
+	}
+
 	e := r.entries[ip]
 	if e == nil {
 		e = &rlEntry{}
 		r.entries[ip] = e
 	}
 	e.fails++
+	e.last = now
 	if e.fails >= maxAuthFails {
-		e.blockUntil = time.Now().Add(blockDuration)
+		e.blockUntil = now.Add(blockDuration)
 		log.Printf("signaling: blocking %s for %v after %d failed auth attempts", ip, blockDuration, e.fails)
 	}
 }
@@ -173,14 +314,30 @@ func remoteIP(r *http.Request) string {
 	return host
 }
 
-// Handler returns the HTTP mux (WebSocket at /ws, optional static files at /).
+// Handler returns the HTTP mux (WebSocket at /ws, health at /healthz, optional
+// static files at /).
 func (s *Server) Handler() http.Handler {
+	s.startOnce.Do(func() { s.startedAt = time.Now() })
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", s.handleWS)
+	mux.HandleFunc("/healthz", s.handleHealth)
 	if s.WebRoot != "" {
 		mux.Handle("/", http.FileServer(http.Dir(s.WebRoot)))
 	}
 	return securityHeaders(mux)
+}
+
+// handleHealth answers unauthenticated so the gateway can distinguish "the Mac's
+// tunnel is down" from "the Mac is up but idle". It exposes no secrets.
+func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"status":   "online",
+		"viewers":  s.viewers.Load(),
+		"uptime_s": int64(time.Since(s.startedAt).Seconds()),
+		"has_turn": len(s.ICEServers) > 1,
+	})
 }
 
 func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
@@ -197,7 +354,8 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		log.Printf("signaling: upgrade: %v", err)
 		return
 	}
-	c := &conn{ws: ws}
+	c := &conn{ws: ws, done: make(chan struct{}), gone: make(chan struct{})}
+	s.viewers.Add(1)
 	log.Printf("signaling: viewer connected from %s", ip)
 	defer s.teardown(c)
 
@@ -207,6 +365,16 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+
+	// Only take the viewer slot after auth, so a wrong password can't kick off
+	// the session that is currently working.
+	s.adopt(c)
+
+	_ = ws.SetReadDeadline(time.Now().Add(pongWait))
+	ws.SetPongHandler(func(string) error {
+		return ws.SetReadDeadline(time.Now().Add(pongWait))
+	})
+	go c.keepalive()
 
 	for {
 		_, raw, err := ws.ReadMessage()
@@ -276,7 +444,8 @@ func (s *Server) route(c *conn, msg message) {
 		s.startSession(c)
 
 	case "answer":
-		if c.sess == nil {
+		sess := c.session()
+		if sess == nil {
 			return
 		}
 		sd, err := session.DecodeAnswer(msg.Payload)
@@ -284,12 +453,13 @@ func (s *Server) route(c *conn, msg message) {
 			log.Printf("signaling: decode answer: %v", err)
 			return
 		}
-		if err := c.sess.SetAnswer(sd); err != nil {
+		if err := sess.SetAnswer(sd); err != nil {
 			log.Printf("signaling: set answer: %v", err)
 		}
 
 	case "candidate":
-		if c.sess == nil {
+		sess := c.session()
+		if sess == nil {
 			return
 		}
 		cand, err := session.DecodeCandidate(msg.Payload)
@@ -297,7 +467,7 @@ func (s *Server) route(c *conn, msg message) {
 			log.Printf("signaling: decode candidate: %v", err)
 			return
 		}
-		if err := c.sess.AddCandidate(cand); err != nil {
+		if err := sess.AddCandidate(cand); err != nil {
 			log.Printf("signaling: add candidate: %v", err)
 		}
 
@@ -326,8 +496,12 @@ func (s *Server) startSession(c *conn) {
 		c.send("error", map[string]string{"message": "session failed"})
 		return
 	}
+	c.sessMu.Lock()
 	c.sess = sess
 	c.capCancel = cancel
+	c.sessMu.Unlock()
+
+	go s.watchSession(c, sess, cancel)
 
 	if err := sess.Offer(); err != nil {
 		log.Printf("signaling: offer: %v", err)
@@ -335,19 +509,50 @@ func (s *Server) startSession(c *conn) {
 	}
 }
 
-func (s *Server) teardownSession(c *conn) {
-	if c.sess != nil {
-		c.sess.Close()
+// watchSession releases the capture pipeline when a session ends by itself —
+// ICE failure, the drop timer expiring, ffmpeg dying. Nothing else notices those,
+// so without this the Mac keeps encoding at full framerate for a viewer that is
+// already gone.
+func (s *Server) watchSession(c *conn, sess *session.Session, cancel context.CancelFunc) {
+	<-sess.Done()
+	cancel()
+
+	c.sessMu.Lock()
+	current := c.sess == sess
+	if current {
 		c.sess = nil
-	}
-	if c.capCancel != nil {
-		c.capCancel()
 		c.capCancel = nil
+	}
+	c.sessMu.Unlock()
+
+	// Only speak up if this is still the connection's live session; a session
+	// replaced by teardownSession or a fresh "hello" is not news to the viewer.
+	if current {
+		log.Print("signaling: session ended on its own, capture released")
+		c.send("session_ended", map[string]string{"message": "capture session ended"})
+	}
+}
+
+func (s *Server) teardownSession(c *conn) {
+	c.sessMu.Lock()
+	sess, cancel := c.sess, c.capCancel
+	c.sess, c.capCancel = nil, nil
+	c.sessMu.Unlock()
+
+	if sess != nil {
+		sess.Close()
+	}
+	if cancel != nil {
+		cancel()
 	}
 }
 
 func (s *Server) teardown(c *conn) {
+	c.closeDone()
+	s.release(c)
 	s.teardownSession(c)
 	_ = c.ws.Close()
+	s.viewers.Add(-1)
+	c.closeGone()
 	log.Print("signaling: viewer disconnected")
 }

@@ -22,6 +22,10 @@ import (
 // SignalFn ships an outbound signaling message (JSON-marshalable) to the viewer.
 type SignalFn func(kind string, payload any)
 
+// dropGrace is how long a "disconnected" peer is given to recover before the
+// session is torn down.
+const dropGrace = 20 * time.Second
+
 // Session is one viewer connection.
 type Session struct {
 	pc    *webrtc.PeerConnection
@@ -33,6 +37,36 @@ type Session struct {
 
 	stopOnce sync.Once
 	stop     chan struct{}
+
+	dropMu    sync.Mutex
+	dropTimer *time.Timer
+}
+
+// Done closes when the session has torn itself down. A session can die on its
+// own — ICE failure, the drop timer expiring, the frame source ending — and the
+// owner has to hear about it, otherwise the capture pipeline behind it keeps
+// encoding for a viewer that is no longer there.
+func (s *Session) Done() <-chan struct{} { return s.stop }
+
+func (s *Session) startDropTimer() {
+	s.dropMu.Lock()
+	defer s.dropMu.Unlock()
+	if s.dropTimer != nil {
+		return
+	}
+	s.dropTimer = time.AfterFunc(dropGrace, func() {
+		log.Printf("session: still disconnected after %s, closing", dropGrace)
+		s.Close()
+	})
+}
+
+func (s *Session) cancelDropTimer() {
+	s.dropMu.Lock()
+	defer s.dropMu.Unlock()
+	if s.dropTimer != nil {
+		s.dropTimer.Stop()
+		s.dropTimer = nil
+	}
 }
 
 // New builds the peer connection, attaches the video track + input data channel,
@@ -51,10 +85,23 @@ func New(iceServers []webrtc.ICEServer, frames <-chan []byte, fps int, ctrl *inp
 		_ = pc.Close()
 		return nil, err
 	}
-	if _, err = pc.AddTrack(track); err != nil {
+	sender, err := pc.AddTrack(track)
+	if err != nil {
 		_ = pc.Close()
 		return nil, err
 	}
+
+	// Drain sender RTCP. Without this the NACK/TWCC interceptors never see the
+	// viewer's feedback, so lost packets are never retransmitted — which on a
+	// mobile link shows up as a frozen or smeared picture.
+	go func() {
+		buf := make([]byte, 1500)
+		for {
+			if _, _, err := sender.Read(buf); err != nil {
+				return
+			}
+		}
+	}()
 
 	s := &Session{
 		pc:     pc,
@@ -75,8 +122,16 @@ func New(iceServers []webrtc.ICEServer, frames <-chan []byte, fps int, ctrl *inp
 		s.input.Handle(msg.Data)
 	})
 
-	// Send actual cursor position back to the client after each move/click.
+	// Send actual cursor position back to the client after each move/click. The
+	// controller holds one callback for the whole process, so this one checks it
+	// is still the live session rather than clearing itself on close — a session
+	// that closes late would otherwise silence the one that replaced it.
 	ctrl.SetCursorFn(func(x, y float64) {
+		select {
+		case <-s.stop:
+			return
+		default:
+		}
 		msg, _ := json.Marshal(map[string]any{"t": "cursor", "x": x, "y": y})
 		_ = dc.SendText(string(msg))
 	})
@@ -91,14 +146,24 @@ func New(iceServers []webrtc.ICEServer, frames <-chan []byte, fps int, ctrl *inp
 	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
 		log.Printf("session: connection state -> %s", state)
 		switch state {
+		case webrtc.PeerConnectionStateConnected:
+			s.cancelDropTimer()
+		case webrtc.PeerConnectionStateDisconnected:
+			// A phone switching Wi-Fi↔cellular, or briefly losing signal, lands
+			// here and usually recovers on its own. Tearing down immediately is
+			// what makes the session die on every network blip, so hold the
+			// capture pipeline open and only give up if it never comes back.
+			s.startDropTimer()
 		case webrtc.PeerConnectionStateFailed,
-			webrtc.PeerConnectionStateClosed,
-			webrtc.PeerConnectionStateDisconnected:
+			webrtc.PeerConnectionStateClosed:
 			s.Close()
 		}
 	})
 
-	go s.input.Run(s.stop)
+	// The controller's dispatch goroutine is process-wide (started in main), not
+	// per-session: robotgo tolerates exactly one caller, and overlapping sessions
+	// during a viewer handover would otherwise drive it from two goroutines.
+	ctrl.Drain()
 	go s.pump(frames)
 
 	return s, nil
@@ -140,8 +205,11 @@ func (s *Session) pump(frames <-chan []byte) {
 				return
 			}
 			if err := s.track.WriteSample(media.Sample{Data: frame, Duration: dur}); err != nil {
-				// ErrClosedPipe etc. — connection is gone.
+				// ErrClosedPipe etc. — the connection is gone. Close rather than
+				// just returning, or the session lingers with nothing pumping it
+				// and the viewer stares at a frozen frame indefinitely.
 				log.Printf("session: WriteSample: %v", err)
+				s.Close()
 				return
 			}
 		}
@@ -151,6 +219,7 @@ func (s *Session) pump(frames <-chan []byte) {
 // Close tears down the peer connection and stops goroutines (idempotent).
 func (s *Session) Close() {
 	s.stopOnce.Do(func() {
+		s.cancelDropTimer()
 		close(s.stop)
 		_ = s.pc.Close()
 		log.Print("session: closed")
