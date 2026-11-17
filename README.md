@@ -86,8 +86,24 @@ prompts and commands, diffs, errors, warnings, links and Claude Code's markers.
 It needs one more permission: System Settings → Privacy & Security →
 **Automation** → mac-agent → **Terminal** (and **iTerm** if used). macOS asks on
 the first use; until it is granted the Terminals screen explains how. iTerm2
-exposes only the visible screen, not its scrollback, and terminals without
-AppleScript support (VS Code, Warp, Ghostty, …) are not listed.
+exposes only the visible screen, not its scrollback.
+
+Terminals inside VS Code-based editors (VS Code, Cursor, Antigravity) need the
+small extension in `editor-extension/`. Each editor window then shows up as a
+group conversation with its terminals, in their real colours:
+
+```bash
+cd editor-extension && npm install && npx @vscode/vsce package --skip-license
+"/Applications/Antigravity IDE.app/Contents/Resources/app/bin/antigravity-ide" \
+  --install-extension mac-remote-terminals-0.1.0.vsix   # or: code --install-extension …
+```
+
+Add `"enable-proposed-api": ["salimarizi.mac-remote-terminals"]` to the editor's
+`argv.json` (`~/.vscode/argv.json`, `~/.antigravity-ide/argv.json`, …) and quit and
+reopen the editor, so the extension sees everything a terminal prints. Without
+it, only the output of commands started through shell integration is mirrored.
+Either way, output from before the extension started is not available.
+Warp, Ghostty and other terminals without a scripting interface are not listed.
 
 **More → Stream stats** overlays resolution, framerate, bitrate, round trip,
 packet loss and `path`. `path: relay` means the media is going through TURN on
@@ -280,7 +296,8 @@ mac-agent/
 │   ├── capture/capture.go      CGDisplayCreateImage → ffmpeg → H.264
 │   ├── session/session.go      WebRTC peer: video track + data channel
 │   ├── input/input.go          data-channel JSON → robotgo mouse/keyboard
-│   └── terminal/               Terminal/iTerm tabs over Apple Events (osascript)
+│   └── terminal/               Terminal/iTerm tabs over Apple Events, editor terminals via the extension
+├── editor-extension/           VS Code-family extension that mirrors editor terminals
 ├── .env.example                environment variable template
 └── .gitignore
 ```

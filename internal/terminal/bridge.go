@@ -221,11 +221,12 @@ func (b *Bridge) send(req request) {
 }
 
 func (b *Bridge) interrupt(req request) {
-	if _, ok := b.lookup(req.ID); !ok {
+	app, ok := b.lookup(req.ID)
+	if !ok {
 		b.ack(req, "interrupt", ErrNotFound)
 		return
 	}
-	err := Interrupt(b.ctx, req.ID)
+	err := Interrupt(b.ctx, app, req.ID)
 	if err != nil {
 		log.Printf("terminal: interrupt %s: %v", req.ID, err)
 	}

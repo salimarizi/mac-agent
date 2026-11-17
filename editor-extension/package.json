@@ -1,0 +1,28 @@
+{
+  "name": "mac-remote-terminals",
+  "displayName": "Mac Remote Terminals",
+  "description": "Lets the Mac Remote agent list, mirror and type into this editor's terminals.",
+  "version": "0.1.0",
+  "publisher": "salimarizi",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/salimarizi/mac-agent.git"
+  },
+  "engines": {
+    "vscode": "^1.93.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "enabledApiProposals": [
+    "terminalDataWriteEvent"
+  ],
+  "main": "./extension.js",
+  "dependencies": {
+    "@xterm/headless": "6.0.0"
+  }
+}

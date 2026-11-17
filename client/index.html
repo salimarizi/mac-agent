@@ -1532,7 +1532,7 @@
       <header class="termHead">
         <div class="termHeadText">
           <h2>Terminals</h2>
-          <p id="termSummary">Every open Terminal tab on your Mac</p>
+          <p id="termSummary">Every open terminal on your Mac</p>
         </div>
         <button class="iconBtn" id="termRefresh" aria-label="Refresh terminals">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>
@@ -3501,16 +3501,24 @@ function hueOf(text) {
   return h % 360;
 }
 
+// ttyName is the short device name of a Terminal/iTerm tab; editor terminals
+// have no tty of their own to show.
 function ttyName(id) {
-  return id.replace('/dev/', '');
+  return id.startsWith('/dev/') ? id.slice(5) : '';
+}
+
+function appLabel(info) {
+  if (info.app === 'iterm') return 'iTerm';
+  if (info.app === 'editor') return info.appName || 'Editor';
+  return '';
 }
 
 function tabName(info) {
-  return info.title || ttyName(info.id);
+  return info.title || ttyName(info.id) || 'terminal';
 }
 
 function memberInfo(id) {
-  return term.list.find(i => i.id === id) || { id, title: ttyName(id), directory: '' };
+  return term.list.find(i => i.id === id) || { id, title: ttyName(id) || 'terminal', directory: '' };
 }
 
 function avatarEl(info, label) {
@@ -3591,6 +3599,7 @@ function convOrder(c) {
 
 function convTitle(c) {
   if (!c.group) return tabName(c.members[0]);
+  if (c.members[0].group) return c.members[0].group;
   const dirs = [...new Set(c.members.map(m => m.directory).filter(Boolean))];
   return dirs.length ? dirs.join(' + ') : 'Terminal window';
 }
@@ -3842,13 +3851,13 @@ function termItem(c, n) {
   const plain = document.createElement('span');
   plain.className = 'tagPlain';
   if (c.group) {
-    tag.textContent = `${c.members.length} tabs`;
+    tag.textContent = [`${c.members.length} tabs`, appLabel(c.members[0])].filter(Boolean).join(' · ');
     plain.textContent = c.members.map(tabName).join(', ');
   } else {
     const info = c.members[0];
     tag.textContent = info.process || 'shell';
     plain.textContent = [info.directory !== info.title ? info.directory : '', ttyName(info.id),
-      info.app === 'iterm' ? 'iTerm' : ''].filter(Boolean).join(' · ');
+      appLabel(info)].filter(Boolean).join(' · ');
   }
   tags.append(tag, plain);
 
@@ -4000,7 +4009,7 @@ function renderThreadHead() {
   if (!th) return;
   const c = findConv(th.key) || { key: th.key, group: th.group, members: th.members.map(memberInfo) };
   threadAvatar.replaceChildren(c.members.length ? convAvatar(c) : avatarEl({ title: th.key }));
-  threadTitle.textContent = c.members.length ? convTitle(c) : (th.group ? 'Terminal window' : ttyName(th.key));
+  threadTitle.textContent = c.members.length ? convTitle(c) : (th.group ? 'Terminal window' : ttyName(th.key) || 'Terminal');
   threadSub.innerHTML = '';
   const busy = c.members.filter(m => m.active);
   if (busy.length) {
@@ -4008,11 +4017,11 @@ function renderThreadHead() {
     threadSub.append(c.group ? ` ${busy.map(tabName).join(', ')} working · ` : ' working · ');
   }
   if (c.group) {
-    threadSub.append(`${c.members.length} tabs`);
+    threadSub.append([`${c.members.length} tabs`, appLabel(c.members[0])].filter(Boolean).join(' · '));
   } else if (c.members[0]) {
     const info = c.members[0];
-    threadSub.append([info.process, info.directory !== info.title ? info.directory : '', ttyName(info.id)]
-      .filter(Boolean).join(' · '));
+    threadSub.append([info.process, info.directory !== info.title ? info.directory : '', ttyName(info.id),
+      appLabel(info)].filter(Boolean).join(' · '));
   }
 }
 
@@ -4313,10 +4322,88 @@ function highlightTokens(escaped) {
   });
 }
 
+// Editor terminals arrive with their real SGR colour codes; render those instead
+// of guessing. Colours are computed here from numbers, never taken as text.
+const ANSI_16 = ['#4A4A5E', '#FF6B6B', '#7EE2A8', '#FFD97A', '#7DA6FF', '#D49BFF', '#6FD8E8', '#D8D8E4',
+  '#7A7A92', '#FF8A8A', '#9DF2BF', '#FFE699', '#A3C0FF', '#E2B8FF', '#93E8F4', '#FFFFFF'];
+const ANSI_FG = '#E4E4EE';
+const ANSI_BG = '#161620';
+
+function xtermColor(n) {
+  if (n < 16) return ANSI_16[n];
+  if (n < 232) {
+    const v = x => (x ? 55 + x * 40 : 0);
+    const i = n - 16;
+    return `rgb(${v(Math.floor(i / 36))},${v(Math.floor(i / 6) % 6)},${v(i % 6)})`;
+  }
+  const g = 8 + (n - 232) * 10;
+  return `rgb(${g},${g},${g})`;
+}
+
+function applySgr(st, params) {
+  const p = params.length ? params.split(';').map(Number) : [0];
+  for (let i = 0; i < p.length; i++) {
+    const c = p[i];
+    if (c === 0) Object.assign(st, { fg: null, bg: null, bold: false, dim: false, italic: false, underline: false, inverse: false });
+    else if (c === 1) st.bold = true;
+    else if (c === 2) st.dim = true;
+    else if (c === 3) st.italic = true;
+    else if (c === 4) st.underline = true;
+    else if (c === 7) st.inverse = true;
+    else if (c === 22) { st.bold = false; st.dim = false; }
+    else if (c === 23) st.italic = false;
+    else if (c === 24) st.underline = false;
+    else if (c === 27) st.inverse = false;
+    else if (c >= 30 && c <= 37) st.fg = ANSI_16[c - 30];
+    else if (c >= 90 && c <= 97) st.fg = ANSI_16[c - 82];
+    else if (c >= 40 && c <= 47) st.bg = ANSI_16[c - 40];
+    else if (c >= 100 && c <= 107) st.bg = ANSI_16[c - 92];
+    else if (c === 39) st.fg = null;
+    else if (c === 49) st.bg = null;
+    else if ((c === 38 || c === 48) && p[i + 1] === 5) {
+      st[c === 38 ? 'fg' : 'bg'] = xtermColor(p[i + 2] & 255);
+      i += 2;
+    } else if ((c === 38 || c === 48) && p[i + 1] === 2) {
+      st[c === 38 ? 'fg' : 'bg'] = `rgb(${p[i + 2] & 255},${p[i + 3] & 255},${p[i + 4] & 255})`;
+      i += 4;
+    }
+  }
+}
+
+function ansiToHtml(line) {
+  const st = { fg: null, bg: null, bold: false, dim: false, italic: false, underline: false, inverse: false };
+  let html = '';
+  let last = 0;
+  const re = /\x1b\[([0-9;]*)m/g;
+  const emit = text => {
+    if (!text) return;
+    const fg = st.inverse ? (st.bg || ANSI_BG) : st.fg;
+    const bg = st.inverse ? (st.fg || ANSI_FG) : st.bg;
+    const css = [fg && `color:${fg}`, bg && `background:${bg}`, st.bold && 'font-weight:700',
+      st.dim && 'opacity:.6', st.italic && 'font-style:italic', st.underline && 'text-decoration:underline']
+      .filter(Boolean).join(';');
+    html += css ? `<span style="${css}">${escapeHtml(text)}</span>` : escapeHtml(text);
+  };
+  let m;
+  while ((m = re.exec(line))) {
+    emit(line.slice(last, m.index));
+    applySgr(st, m[1]);
+    last = re.lastIndex;
+  }
+  emit(line.slice(last).replace(/\x1b\[[0-9;?]*[A-Za-z]/g, ''));
+  return html;
+}
+
 function highlightLine(line) {
   const cached = hlCache.get(line);
   if (cached !== undefined) return cached;
   let html;
+  if (line.includes('\x1b[')) {
+    html = ansiToHtml(line);
+    if (hlCache.size >= HL_CACHE_MAX) hlCache.clear();
+    hlCache.set(line, html);
+    return html;
+  }
   const e = escapeHtml(line);
   const trimmed = line.trimStart();
   let m;

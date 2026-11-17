@@ -37,13 +37,17 @@ var ErrNotAuthorized = errors.New("not authorized to control the terminal app")
 // ErrNotFound means the session closed between being listed and being used.
 var ErrNotFound = errors.New("terminal session not found")
 
-// Info describes one open terminal tab or session. The tty is the identity: it is
-// unique per tab for as long as the tab is open, in both apps. Window groups the
-// tabs that share a window, which the viewer shows as one group conversation.
+// Info describes one open terminal tab or session. For Terminal and iTerm the tty
+// is the identity: it is unique per tab for as long as the tab is open. Window
+// groups the tabs that share a window, which the viewer shows as one group
+// conversation; Group names that conversation when the window has a name of its
+// own, as an editor's workspace does.
 type Info struct {
 	ID        string `json:"id"`
 	App       App    `json:"app"`
+	AppName   string `json:"appName,omitempty"`
 	Window    string `json:"window"`
+	Group     string `json:"group,omitempty"`
 	Tab       int    `json:"tab"`
 	Title     string `json:"title"`
 	Directory string `json:"directory"`
@@ -215,8 +219,9 @@ type rawSession struct {
 	Screen   string `json:"screen"`
 }
 
-// List returns every open session in Terminal.app and iTerm2. Apps that are not
-// running are skipped without being launched.
+// List returns every open session in Terminal.app and iTerm2, then the terminals
+// of editors running the Mac Remote extension. Apps that are not running are
+// skipped without being launched.
 func List(ctx context.Context) ([]Info, error) {
 	out, err := runJXA(ctx, listScript)
 	if err != nil {
@@ -238,7 +243,8 @@ func List(ctx context.Context) ([]Info, error) {
 		return nil, fmt.Errorf("list terminals: %s", strings.Join(res.Errors, "; "))
 	}
 
-	foreground := foregroundProcesses(ctx)
+	ps := processTable(ctx)
+	foreground := parseForeground(ps)
 	infos := make([]Info, 0, len(res.Sessions))
 	for _, s := range res.Sessions {
 		if !ttyPattern.MatchString(s.TTY) {
@@ -258,12 +264,16 @@ func List(ctx context.Context) ([]Info, error) {
 			screen:    s.Screen,
 		})
 	}
-	return infos, nil
+	return append(infos, listEditors(ctx, foreground, parseTTYByPID(ps))...), nil
 }
 
 // Read returns the session's text as lines: the scrollback for Terminal.app, the
-// visible screen for iTerm2 (which does not expose its scrollback).
+// visible screen for iTerm2 (which does not expose its scrollback), and for an
+// editor terminal its mirrored scrollback with SGR colour codes left in.
 func Read(ctx context.Context, app App, tty string) ([]string, error) {
+	if app == AppEditor {
+		return readEditor(ctx, tty)
+	}
 	if !ttyPattern.MatchString(tty) {
 		return nil, ErrNotFound
 	}
@@ -277,6 +287,9 @@ func Read(ctx context.Context, app App, tty string) ([]string, error) {
 // Send types text into the session followed by Return, exactly as if it had been
 // typed at the Mac, so it shows up in the terminal window immediately.
 func Send(ctx context.Context, app App, tty, text string) error {
+	if app == AppEditor {
+		return sendEditor(ctx, tty, text)
+	}
 	if !ttyPattern.MatchString(tty) {
 		return ErrNotFound
 	}
@@ -285,8 +298,12 @@ func Send(ctx context.Context, app App, tty, text string) error {
 }
 
 // Interrupt delivers SIGINT to the tty's foreground process group — what Ctrl-C
-// does — which neither app's scripting interface can express.
-func Interrupt(ctx context.Context, tty string) error {
+// does — which neither app's scripting interface can express. An editor terminal
+// is sent a literal Ctrl-C through the extension instead.
+func Interrupt(ctx context.Context, app App, tty string) error {
+	if app == AppEditor {
+		return interruptEditor(ctx, tty)
+	}
 	if !ttyPattern.MatchString(tty) {
 		return ErrNotFound
 	}
@@ -305,16 +322,34 @@ func Interrupt(ctx context.Context, tty string) error {
 	return syscall.Kill(-pgid, syscall.SIGINT)
 }
 
-// foregroundProcesses maps "ttysNNN" to the name of the process leading that
-// tty's foreground process group: the program the user is actually talking to.
-func foregroundProcesses(ctx context.Context) map[string]string {
+// processTable is one ps snapshot: tty, pid, process group, the tty's foreground
+// group, and command, for every process.
+func processTable(ctx context.Context) string {
 	out, err := exec.CommandContext(ctx, "ps", "-axo", "tty=,pid=,pgid=,tpgid=,comm=").Output()
 	if err != nil {
-		return nil
+		return ""
 	}
-	return parseForeground(string(out))
+	return string(out)
 }
 
+// parseTTYByPID maps a process id to its "ttysNNN", which is how an editor
+// terminal's shell pid finds the program in front of it.
+func parseTTYByPID(psOutput string) map[int]string {
+	ttys := map[int]string{}
+	for line := range strings.SplitSeq(psOutput, "\n") {
+		f := strings.Fields(line)
+		if len(f) < 2 || !strings.HasPrefix(f[0], "ttys") {
+			continue
+		}
+		if pid, err := strconv.Atoi(f[1]); err == nil {
+			ttys[pid] = f[0]
+		}
+	}
+	return ttys
+}
+
+// parseForeground maps "ttysNNN" to the name of the process leading that tty's
+// foreground process group: the program the user is actually talking to.
 func parseForeground(psOutput string) map[string]string {
 	names := map[string]string{}
 	for line := range strings.SplitSeq(psOutput, "\n") {

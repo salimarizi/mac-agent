@@ -110,6 +110,27 @@ ttys015   8711  2472  2472 caffeinate
 	}
 }
 
+func TestParseTTYByPID(t *testing.T) {
+	ps := `ttys005  49748 49748 50861 /bin/zsh
+??         100   100     0 launchd`
+	got := parseTTYByPID(ps)
+	if len(got) != 1 || got[49748] != "ttys005" {
+		t.Fatalf("parseTTYByPID = %v", got)
+	}
+}
+
+func TestParseEditorID(t *testing.T) {
+	pid, tid, ok := parseEditorID("editor:25412:3")
+	if !ok || pid != 25412 || tid != "3" {
+		t.Fatalf("parseEditorID = %d %q %v", pid, tid, ok)
+	}
+	for _, bad := range []string{"/dev/ttys004", "editor:x:1", "editor:1:../x", "editor:1"} {
+		if _, _, ok := parseEditorID(bad); ok {
+			t.Fatalf("parseEditorID(%q) accepted", bad)
+		}
+	}
+}
+
 func TestWindowDirectory(t *testing.T) {
 	if got := windowDirectory("Evergroot — ✳ briefer — claude — 99×24"); got != "Evergroot" {
 		t.Fatalf("windowDirectory = %q", got)
