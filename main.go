@@ -122,7 +122,14 @@ func main() {
 	tlsK := envOrFlag("MAC_AGENT_TLS_KEY", tlsKey)
 
 	log.Printf("mac-agent listening on %s (screen=%s fps=%d width=%d)", *addr, *screen, *fps, *width)
-	log.Print("NOTE: grant Screen Recording AND Accessibility permission to this binary/terminal.")
+	if input.AccessibilityTrusted() {
+		log.Print("permissions: Accessibility granted — remote input will work")
+	} else {
+		log.Print("permissions: Accessibility NOT granted — the screen will stream but " +
+			"nothing will respond to taps. Grant it to the process that launches this " +
+			"agent (launchd runs /bin/bash) in System Settings > Privacy & Security > " +
+			"Accessibility, then restart the service.")
+	}
 
 	// No WriteTimeout/ReadTimeout: they would kill long-lived WebSocket sessions.
 	// Liveness is handled by the signaling layer's ping/pong instead.

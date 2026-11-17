@@ -12,11 +12,21 @@
 //	{"t":"scroll","dx":0,"dy":-3}             wheel scroll
 //	{"t":"type","text":"hello world"}         type a literal string
 //	{"t":"key","key":"escape","mods":["cmd"]} tap a key with optional modifiers
+//	{"t":"clipset","text":"…"}                put text on the Mac's clipboard
+//	{"t":"clipget"}                           ask for it back: {"t":"clip","text":"…"}
 //
 // Mouse-move rates can be high (60/s); everything here is cheap and synchronous,
 // but robotgo is not goroutine-safe, so all calls are funnelled through a single
 // goroutine (see Controller.Run).
 package input
+
+/*
+#cgo LDFLAGS: -framework ApplicationServices
+#include <ApplicationServices/ApplicationServices.h>
+
+static int axTrusted(void) { return AXIsProcessTrusted() ? 1 : 0; }
+*/
+import "C"
 
 import (
 	"encoding/json"
@@ -27,6 +37,14 @@ import (
 
 	"github.com/go-vgo/robotgo"
 )
+
+// AccessibilityTrusted reports whether this process may post keyboard and mouse
+// events. Without the grant robotgo fails silently — the picture keeps streaming
+// and nothing moves — so the agent says so at startup rather than leaving it to
+// be guessed at.
+func AccessibilityTrusted() bool {
+	return C.axTrusted() == 1
+}
 
 // Event is the decoded form of a single data-channel message.
 type Event struct {
@@ -45,6 +63,10 @@ type Event struct {
 // position (0..1) of the cursor on the host screen.
 type CursorFn func(x, y float64)
 
+// ReplyFn ships a JSON-marshalable object back to the viewer over the same data
+// channel the events arrived on.
+type ReplyFn func(v any)
+
 // Controller serializes input events onto a single OS-driving goroutine.
 type Controller struct {
 	events    chan Event
@@ -52,11 +74,14 @@ type Controller struct {
 	screenH   int
 	moveScale float64 // multiplier applied to relative (trackpad) deltas
 
-	// onCursor is swapped by each new session while Run reads it, so it needs a lock.
+	// onCursor and onReply are swapped by each new session while Run reads them,
+	// so they need a lock.
 	cursorMu sync.RWMutex
 	onCursor CursorFn
+	onReply  ReplyFn
 
-	running atomic.Bool
+	running   atomic.Bool
+	announced atomic.Bool
 }
 
 // New returns a Controller. moveScale tunes trackpad sensitivity (1.0 = 1:1).
@@ -90,6 +115,7 @@ func (c *Controller) SetCursorFn(fn CursorFn) {
 // Drain discards events queued by a previous session. Without it, taps made just
 // before a drop are replayed against whatever is on screen after reconnecting.
 func (c *Controller) Drain() {
+	c.announced.Store(false)
 	for {
 		select {
 		case <-c.events:
@@ -97,6 +123,24 @@ func (c *Controller) Drain() {
 			return
 		}
 	}
+}
+
+// announceFirst logs once per session that input is arriving. It separates "the
+// phone's events never reached the Mac" from "they arrived and macOS dropped
+// them on the floor", which otherwise look identical from the outside.
+func (c *Controller) announceFirst(e Event) {
+	if c.announced.CompareAndSwap(false, true) {
+		log.Printf("input: receiving events (first was %q); accessibility trusted=%v, screen=%dx%d",
+			e.T, AccessibilityTrusted(), c.screenW, c.screenH)
+	}
+}
+
+// SetReplyFn registers the channel used to answer events that return data.
+// Sessions pass nil on teardown.
+func (c *Controller) SetReplyFn(fn ReplyFn) {
+	c.cursorMu.Lock()
+	c.onReply = fn
+	c.cursorMu.Unlock()
 }
 
 func (c *Controller) reportCursor() {
@@ -108,6 +152,15 @@ func (c *Controller) reportCursor() {
 	}
 	x, y := robotgo.Location()
 	fn(float64(x)/float64(c.screenW), float64(y)/float64(c.screenH))
+}
+
+func (c *Controller) reply(v any) {
+	c.cursorMu.RLock()
+	fn := c.onReply
+	c.cursorMu.RUnlock()
+	if fn != nil {
+		fn(v)
+	}
 }
 
 // Handle decodes a raw data-channel payload and queues it. Decode errors are
@@ -160,6 +213,8 @@ func (c *Controller) Run(stop <-chan struct{}) {
 }
 
 func (c *Controller) dispatch(e Event) {
+	c.announceFirst(e)
+
 	switch e.T {
 	case "move":
 		x, y := robotgo.Location()
@@ -213,6 +268,25 @@ func (c *Controller) dispatch(e Event) {
 			args = append(args, m)
 		}
 		robotgo.KeyTap(e.Key, args...)
+
+	case "clipset":
+		// Putting the phone's text on the Mac's clipboard and letting the user
+		// paste survives emoji, newlines and long passages that replaying
+		// keystrokes one at a time mangles.
+		if e.Text == "" {
+			return
+		}
+		if err := robotgo.WriteAll(e.Text); err != nil {
+			log.Printf("input: clipboard write: %v", err)
+		}
+
+	case "clipget":
+		text, err := robotgo.ReadAll()
+		if err != nil {
+			log.Printf("input: clipboard read: %v", err)
+			return
+		}
+		c.reply(map[string]any{"t": "clip", "text": text})
 
 	default:
 		log.Printf("input: unknown event type %q", e.T)

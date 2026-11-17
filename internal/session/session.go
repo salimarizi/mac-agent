@@ -136,6 +136,22 @@ func New(iceServers []webrtc.ICEServer, frames <-chan []byte, fps int, ctrl *inp
 		_ = dc.SendText(string(msg))
 	})
 
+	// Same ownership rule as the cursor callback: answer only while this session
+	// is the live one.
+	ctrl.SetReplyFn(func(v any) {
+		select {
+		case <-s.stop:
+			return
+		default:
+		}
+		msg, err := json.Marshal(v)
+		if err != nil {
+			log.Printf("session: marshal reply: %v", err)
+			return
+		}
+		_ = dc.SendText(string(msg))
+	})
+
 	pc.OnICECandidate(func(c *webrtc.ICECandidate) {
 		if c == nil {
 			return // gathering finished

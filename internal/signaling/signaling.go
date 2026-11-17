@@ -16,6 +16,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -81,6 +82,9 @@ type conn struct {
 	sess   *session.Session
 	// capCancel stops the ffmpeg pipeline for this connection.
 	capCancel context.CancelFunc
+	// capMu guards capCfg, this viewer's capture override (nil = server default).
+	capMu  sync.Mutex
+	capCfg *capture.Config
 	// done closes when teardown begins, stopping the ping loop.
 	done     chan struct{}
 	doneOnce sync.Once
@@ -131,6 +135,16 @@ func (c *conn) session() *session.Session {
 	c.sessMu.Lock()
 	defer c.sessMu.Unlock()
 	return c.sess
+}
+
+// captureConfig is the config this viewer's next session should start with.
+func (c *conn) captureConfig(base capture.Config) capture.Config {
+	c.capMu.Lock()
+	defer c.capMu.Unlock()
+	if c.capCfg == nil {
+		return base
+	}
+	return *c.capCfg
 }
 
 func (c *conn) closeDone() {
@@ -443,6 +457,16 @@ func (s *Server) route(c *conn, msg message) {
 	case "hello":
 		s.startSession(c)
 
+	case "quality":
+		if !s.setQuality(c, msg.Payload) {
+			return
+		}
+		// Before "hello" there is nothing to restart — the new config is simply
+		// what the first session will be built with.
+		if c.session() != nil {
+			s.startSession(c)
+		}
+
 	case "answer":
 		sess := c.session()
 		if sess == nil {
@@ -476,12 +500,95 @@ func (s *Server) route(c *conn, msg message) {
 	}
 }
 
+// qualityReq is the viewer choosing a stream profile. The phone knows things the
+// Mac cannot — that it is on cellular, or that the user wants detail over
+// smoothness — so the preset is picked there and clamped here.
+type qualityReq struct {
+	Width   int    `json:"width"`
+	FPS     int    `json:"fps"`
+	Bitrate string `json:"bitrate"`
+}
+
+const (
+	minCaptureWidth = 480
+	maxCaptureWidth = 3840
+	minCaptureFPS   = 5
+	maxCaptureFPS   = 60
+	minBitrateBps   = 300_000
+	maxBitrateBps   = 12_000_000
+)
+
+// parseBitrate accepts ffmpeg-style rates ("900K", "6M", "2500000") and returns a
+// clamped plain bits-per-second string. Anything unparseable is rejected rather
+// than handed to ffmpeg.
+func parseBitrate(b string) (string, bool) {
+	if b == "" {
+		return "", false
+	}
+	mult, num := 1, b
+	switch b[len(b)-1] {
+	case 'K', 'k':
+		mult, num = 1_000, b[:len(b)-1]
+	case 'M', 'm':
+		mult, num = 1_000_000, b[:len(b)-1]
+	}
+	n, err := strconv.Atoi(num)
+	if err != nil || n <= 0 {
+		return "", false
+	}
+	return strconv.Itoa(clampInt(n*mult, minBitrateBps, maxBitrateBps)), true
+}
+
+func clampInt(v, lo, hi int) int {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
+}
+
+// setQuality records the viewer's requested profile, leaving any field it did not
+// ask about at the server's configured value.
+func (s *Server) setQuality(c *conn, raw json.RawMessage) bool {
+	var q qualityReq
+	if err := json.Unmarshal(raw, &q); err != nil {
+		log.Printf("signaling: bad quality payload: %v", err)
+		return false
+	}
+	cfg := s.Capture
+	if q.Width > 0 {
+		cfg.Width = clampInt(q.Width, minCaptureWidth, maxCaptureWidth)
+	}
+	if q.FPS > 0 {
+		cfg.FPS = clampInt(q.FPS, minCaptureFPS, maxCaptureFPS)
+	}
+	if b, ok := parseBitrate(q.Bitrate); ok {
+		cfg.Bitrate = b
+	}
+
+	c.capMu.Lock()
+	prev := c.capCfg
+	// No override yet means the viewer is already running the server's settings.
+	same := (prev == nil && cfg == s.Capture) || (prev != nil && *prev == cfg)
+	c.capCfg = &cfg
+	c.capMu.Unlock()
+	if same {
+		return false // nothing changed; don't interrupt a working stream
+	}
+
+	log.Printf("signaling: viewer requested %dpx wide @ %dfps, %s bps", cfg.Width, cfg.FPS, cfg.Bitrate)
+	return true
+}
+
 func (s *Server) startSession(c *conn) {
 	// Replace any existing session on this connection.
 	s.teardownSession(c)
 
+	cfg := c.captureConfig(s.Capture)
 	ctx, cancel := context.WithCancel(context.Background())
-	frames, err := capture.Start(ctx, s.Capture)
+	frames, err := capture.Start(ctx, cfg)
 	if err != nil {
 		cancel()
 		log.Printf("signaling: capture start: %v", err)
@@ -489,7 +596,7 @@ func (s *Server) startSession(c *conn) {
 		return
 	}
 
-	sess, err := session.New(s.ICEServers, frames, s.Capture.FPS, s.Input, c.send)
+	sess, err := session.New(s.ICEServers, frames, cfg.FPS, s.Input, c.send)
 	if err != nil {
 		cancel()
 		log.Printf("signaling: session: %v", err)

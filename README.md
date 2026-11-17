@@ -21,13 +21,51 @@ Mac (behind any NAT):
 ## Features
 
 - H.264 hardware encoding via VideoToolbox (falls back to libx264)
-- Pinch-to-zoom, momentum scroll, trackpad-style cursor control
+- Touch mode built for phones: tap clicks where you tap, hold-and-drag drags
+- Trackpad mode for pixel work, pinch-to-zoom, momentum scroll
+- Fill mode so an upright phone shows a readable screen instead of a letterboxed strip
+- Stream quality presets chosen from the phone (Auto / Sharp / Smooth / Saver)
+- Two-way clipboard between phone and Mac
+- macOS shortcut sheet (Spotlight, ⌘Tab, ⌘C/V, screenshot, …)
 - Accessory key bar: arrow keys, Esc, Tab, Cmd/Ctrl/Opt/Shift modifiers
+- Installable to the home screen (PWA) for a chrome-less window on iOS
 - Password authentication with constant-time comparison and rate limiting
 - TLS support (direct or via reverse proxy)
 - TURN server support for NAT traversal
-- Single HTML file client
 - All credentials via environment variables — safe for public repos
+
+## Using it from a phone
+
+| Gesture | Touch mode (default) | Trackpad mode |
+|---|---|---|
+| Tap | click where you tapped | click at the cursor |
+| Double tap | double-click | zoom in / out |
+| Hold, then release | right click there | right click at the cursor |
+| Hold, then drag | drag — windows, selections, files | — |
+| One finger drag | scroll (pans when zoomed in) | move the cursor |
+| Two finger drag | scroll | scroll |
+| Two finger tap | right click | right click |
+| Pinch | zoom | zoom |
+
+Toolbar: **Keys** soft keyboard · **Touch/Pad** interaction mode · **Fit/Fill**
+whole screen or filled and pannable · **Scroll** force one-finger scrolling ·
+**More** shortcuts, clipboard, stats · **Full** fullscreen · **Exit** disconnect.
+
+The chip in the status bar cycles the stream quality. *Auto* uses whatever the
+agent was started with; the other presets override width, framerate and bitrate
+for this viewer and restart the stream (about a second of black).
+
+Phones start on *Smooth* rather than the agent's full-fat settings, and drop to
+*Saver* when the browser reports a slow or metered link. If sustained packet loss
+shows up mid-session the client steps down one preset on its own — pushing more
+bitrate than the path can carry just builds a queue, and that queue is what gets
+felt as lag. It never steps back up by itself; touching the chip takes manual
+control and switches the automatic behaviour off for the session.
+
+**More → Stream stats** overlays resolution, framerate, bitrate, round trip,
+packet loss and `path`. `path: relay` means the media is going through TURN on
+the VPS instead of phone-to-Mac, which adds a round trip in each direction — the
+first thing to check when it feels sluggish.
 
 ## Requirements
 
@@ -97,7 +135,32 @@ for `~/Documents`, `~/Desktop` or `~/Downloads`, so a checkout in any of those i
 unreadable to the job and it dies with `Operation not permitted` before the
 script starts. The installer stages the binary, `client/`, and `.env` into
 `~/Library/Application Support/MacRemote` and points launchd there — so **re-run
-the installer after changing `.env`, the client, or the Go code**.
+the installer after changing `.env` or the Go code**.
+
+### Shipping a client change
+
+The client is served from two places: nginx on the VPS, and the staged copy the
+agent serves locally. One script refreshes both and verifies the upload:
+
+```bash
+scripts/deploy-client.sh
+```
+
+No agent restart is needed — the files are read from disk per request. Reload the
+page on the phone to pick the change up.
+
+The gateway needs two things nginx does not do by default, or the app will not
+install to a home screen and will pin itself to a stale client after a deploy:
+
+```nginx
+location = /manifest.webmanifest {
+    default_type application/manifest+json;   # nginx would send octet-stream
+    add_header Cache-Control "no-store" always;
+}
+
+location = /sw.js      { add_header Cache-Control "no-store" always; }
+location = /index.html { add_header Cache-Control "no-store" always; }
+```
 
 ## Environment variables
 
@@ -145,6 +208,19 @@ JSON over the WebRTC data channel (see `internal/input/input.go`):
 {"t":"scroll","dx":0,"dy":-3}
 {"t":"type","text":"hello"}
 {"t":"key","key":"escape","mods":["cmd"]}
+{"t":"clipset","text":"…"}
+{"t":"clipget"}
+```
+
+The agent answers on the same channel with `{"t":"cursor","x":…,"y":…}` after
+cursor-moving events, and `{"t":"clip","text":"…"}` in reply to `clipget`.
+
+Over the signaling socket, the viewer may also send a quality preset. Empty or
+missing fields mean "keep what the agent was started with"; values are clamped
+server-side, and the stream restarts only when something actually changed:
+
+```json
+{"type":"quality","payload":{"width":1280,"fps":30,"bitrate":"3M"}}
 ```
 
 ## Project layout
@@ -152,7 +228,11 @@ JSON over the WebRTC data channel (see `internal/input/input.go`):
 ```
 mac-agent/
 ├── main.go                     entry point, flags, HTTP server
-├── client/index.html           single-file web client
+├── client/                     web client (no build step)
+│   ├── index.html              the whole app: markup, styles, script
+│   ├── manifest.webmanifest    installable-to-home-screen metadata
+│   ├── sw.js                   service worker (network-first shell cache)
+│   └── icon-*.png              app icons
 ├── internal/
 │   ├── signaling/signaling.go  WebSocket + auth + per-viewer lifecycle
 │   ├── capture/capture.go      CGDisplayCreateImage → ffmpeg → H.264

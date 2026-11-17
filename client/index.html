@@ -7,6 +7,9 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="theme-color" content="#000000" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+  <link rel="icon" href="icon-192.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
@@ -106,6 +109,30 @@
       color: var(--text);
     }
 
+    /* ── Status-bar chip ── */
+    .chip {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      height: 28px;
+      padding: 0 12px;
+      border-radius: 999px;
+      border: 1px solid var(--glass-border);
+      background: var(--surface-elevated);
+      color: var(--text-secondary);
+      font-family: inherit;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      white-space: nowrap;
+      cursor: pointer;
+      flex-shrink: 0;
+      -webkit-tap-highlight-color: transparent;
+      transition: color 0.2s, border-color 0.2s, background 0.2s;
+    }
+    .chip:active { background: rgba(255,255,255,0.1); }
+    .chip.active { color: var(--accent-light); border-color: var(--accent); }
+
     /* ── Video area ── */
     #videoWrap {
       flex: 1;
@@ -123,7 +150,9 @@
       touch-action: none;
       -webkit-user-select: none;
       user-select: none;
-      transform-origin: 0 0;
+      /* Centre origin: clampPan and the double-tap zoom both compute offsets
+         from the middle of the viewport. */
+      transform-origin: 50% 50%;
       will-change: transform;
     }
 
@@ -184,6 +213,15 @@
       100% { transform: translate(-7px, -4px) scale(1.8); opacity: 0; }
     }
 
+    /* Held-down marker so a touch drag is visibly distinct from a hover. */
+    #cursor.dragging #cursorRipple {
+      animation: none;
+      transform: translate(-7px, -4px) scale(1);
+      opacity: 1;
+      border-color: var(--accent);
+      background: var(--accent-glow);
+    }
+
     /* ── Toolbar ── */
     #toolbar {
       display: flex;
@@ -205,19 +243,27 @@
       align-items: center;
       justify-content: center;
       gap: 4px;
-      min-width: 56px;
+      flex: 1 1 0;
+      min-width: 0;
       min-height: 48px;
+      padding: 0 2px;
       border: none;
       background: transparent;
       color: var(--text-secondary);
       font-family: inherit;
-      font-size: 10px;
+      font-size: 9.5px;
       font-weight: 500;
-      letter-spacing: 0.02em;
+      letter-spacing: 0.01em;
       border-radius: 14px;
       cursor: pointer;
       -webkit-tap-highlight-color: transparent;
       transition: color 0.25s, background 0.25s;
+    }
+    .tbBtn span {
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
     .tbBtn:active { background: rgba(255,255,255,0.06); }
     .tbBtn svg {
@@ -442,6 +488,111 @@
       align-self: center;
     }
 
+    /* ── Bottom sheet (shortcuts, clipboard, options) ── */
+    #sheetScrim {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.5);
+      backdrop-filter: blur(2px);
+      -webkit-backdrop-filter: blur(2px);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.25s;
+      z-index: 30;
+    }
+    #sheetScrim.open { opacity: 1; pointer-events: auto; }
+
+    #sheet {
+      position: fixed;
+      left: 0; right: 0; bottom: 0;
+      max-height: 78vh;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      background: var(--surface);
+      backdrop-filter: blur(28px) saturate(1.4);
+      -webkit-backdrop-filter: blur(28px) saturate(1.4);
+      border-top: 1px solid var(--glass-border);
+      border-radius: 24px 24px 0 0;
+      padding: 10px 16px calc(20px + env(safe-area-inset-bottom));
+      transform: translateY(100%);
+      transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+      z-index: 31;
+      touch-action: pan-y;
+    }
+    #sheet.open { transform: translateY(0); }
+
+    .sheetGrip {
+      width: 40px; height: 4px;
+      border-radius: 2px;
+      background: var(--glass-border-hover);
+      margin: 2px auto 14px;
+    }
+    .sheetTitle {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-secondary);
+      margin: 14px 2px 8px;
+    }
+    .sheetGrid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+      gap: 8px;
+    }
+    .sheetBtn {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      justify-content: center;
+      gap: 2px;
+      min-height: 52px;
+      padding: 8px 12px;
+      border-radius: 14px;
+      border: 1px solid var(--glass-border);
+      background: var(--surface-elevated);
+      color: var(--text);
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      text-align: left;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .sheetBtn:active { background: rgba(255,255,255,0.1); }
+    .sheetBtn .combo {
+      font-size: 10.5px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      letter-spacing: 0.02em;
+    }
+    .sheetBtn.active {
+      border-color: var(--accent);
+      color: var(--accent-light);
+    }
+
+    /* ── Stats HUD ── */
+    #hud {
+      position: absolute;
+      top: 8px; right: 8px;
+      display: none;
+      flex-direction: column;
+      gap: 1px;
+      padding: 7px 10px;
+      border-radius: 10px;
+      background: rgba(0,0,0,0.6);
+      border: 1px solid var(--glass-border);
+      font-size: 10.5px;
+      font-weight: 500;
+      font-variant-numeric: tabular-nums;
+      color: var(--text-secondary);
+      pointer-events: none;
+      z-index: 6;
+    }
+    #hud.visible { display: flex; }
+    #hud b { color: var(--text); font-weight: 600; }
+
     /* ── Keyboard-open state: shrink video ── */
     #app.kb-open #videoWrap {
       transition: flex 0.25s ease;
@@ -461,6 +612,12 @@
   <div id="statusBar">
     <div id="dot"></div>
     <span id="statusText">Not connected</span>
+    <button class="chip" id="btnQuality" aria-label="Stream quality">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4 20v-5M10 20V9M16 20v-8M22 20V4"/>
+      </svg>
+      <span id="qualityLabel">Auto</span>
+    </button>
   </div>
 
   <div id="videoWrap">
@@ -501,6 +658,7 @@
       </div>
     </div>
 
+    <div id="hud"></div>
     <div id="kbHint">Keyboard active</div>
   </div>
 
@@ -527,6 +685,9 @@
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
       </button>
       <span class="kbSep"></span>
+      <button class="kbKey" data-act="paste">Paste</button>
+      <button class="kbKey" data-act="copy">Copy</button>
+      <span class="kbSep"></span>
       <button class="kbKey" data-key="delete">Del</button>
       <button class="kbKey" data-key="home">Home</button>
       <button class="kbKey" data-key="end">End</button>
@@ -544,19 +705,34 @@
       </svg>
       <span>Keys</span>
     </button>
+    <button class="tbBtn" id="btnMode" aria-label="Toggle touch / trackpad mode">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M9 11V5.5a1.5 1.5 0 0 1 3 0V11"/>
+        <path d="M12 11V4.5a1.5 1.5 0 0 1 3 0V11"/>
+        <path d="M15 11V6.5a1.5 1.5 0 0 1 3 0V13"/>
+        <path d="M9 11V9.5a1.5 1.5 0 0 0-3 0V14l-1.2-1.6a1.5 1.5 0 0 0-2.4 1.8l3.1 4.6A5 5 0 0 0 9.7 21H13a5 5 0 0 0 5-5"/>
+      </svg>
+      <span id="modeLabel">Touch</span>
+    </button>
+    <button class="tbBtn" id="btnFit" aria-label="Toggle fit / fill screen">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="2" y="5" width="20" height="14" rx="2"/>
+        <path d="M8 9l-3 3 3 3M16 9l3 3-3 3"/>
+      </svg>
+      <span id="fitLabel">Fit</span>
+    </button>
     <button class="tbBtn" id="btnScroll" aria-label="Toggle scroll mode">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
         <path d="M12 3v18M5 10l7-7 7 7M5 14l7 7 7-7"/>
       </svg>
       <span>Scroll</span>
     </button>
-    <button class="tbBtn" id="btnRightClick" aria-label="Right click">
+    <button class="tbBtn" id="btnMore" aria-label="Shortcuts and options">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-        <rect x="6" y="2" width="12" height="20" rx="6"/>
-        <path d="M12 2v8"/>
-        <line x1="12" y1="12" x2="12" y2="12.01"/>
+        <rect x="3" y="4" width="18" height="16" rx="3"/>
+        <path d="M7 9h.01M11 9h.01M15 9h.01M7 13h.01M11 13h2.5M17 9h.01M17 13h.01"/>
       </svg>
-      <span>Right</span>
+      <span>More</span>
     </button>
     <button class="tbBtn" id="btnFullscreen" aria-label="Fullscreen">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
@@ -575,6 +751,26 @@
   </div>
 </div>
 
+<div id="sheetScrim"></div>
+<div id="sheet">
+  <div class="sheetGrip"></div>
+
+  <div class="sheetTitle">Shortcuts</div>
+  <div class="sheetGrid" id="shortcutGrid"></div>
+
+  <div class="sheetTitle">Clipboard</div>
+  <div class="sheetGrid">
+    <button class="sheetBtn" data-act="paste">Paste<span class="combo">Phone → Mac</span></button>
+    <button class="sheetBtn" data-act="copy">Copy<span class="combo">Mac → Phone</span></button>
+  </div>
+
+  <div class="sheetTitle">Options</div>
+  <div class="sheetGrid">
+    <button class="sheetBtn" id="sheetRightClick">Right click<span class="combo">Next tap only</span></button>
+    <button class="sheetBtn" id="sheetHud">Stream stats<span class="combo">Show overlay</span></button>
+  </div>
+</div>
+
 <textarea id="kbCapture" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
 
 <script>
@@ -588,6 +784,15 @@ const state = {
   connected: false,
   scrollMode: false,
   nextRightClick: false,
+  // 'touch'   — the picture behaves like a touchscreen: you act where you tap.
+  // 'trackpad' — the original relative-cursor behaviour, kept for precision work.
+  inputMode: 'touch',
+  // 'auto' follows orientation; an explicit choice sticks across rotations.
+  fitMode: 'auto',
+  quality: 'auto',
+  // Cleared the moment the user picks a preset themselves.
+  autoAdapt: true,
+  showStats: false,
   // Reconnect supervision: wantConnected stays true until the user explicitly
   // disconnects, so a dropped Wi-Fi/cellular link retries on its own.
   wantConnected: false,
@@ -619,21 +824,40 @@ const zoom = {
   startDist: 0,
   startScale: 1,
   pinching: false,
+  // The scale applyFit last chose, so a later resize can tell a preset apart
+  // from a pinch the user made themselves.
+  fitScale: 1,
 };
 const ZOOM_MIN = 1;
 const ZOOM_MAX = 5;
 
 function applyZoom() {
-  screen.style.transform = zoom.scale === 1
+  screenEl.style.transform = zoom.scale === 1
     ? ''
     : `translate(${zoom.panX}px, ${zoom.panY}px) scale(${zoom.scale})`;
+  updateCursorDisplay();
+}
+
+// pictureRect returns the size of the letterboxed picture inside the (untransformed)
+// video element, which is what the pan limits and the fill scale are measured against.
+function pictureRect() {
+  const w = videoWrap.getBoundingClientRect();
+  const vw = screenEl.videoWidth;
+  const vh = screenEl.videoHeight;
+  if (!vw || !vh || !w.width || !w.height) {
+    return { wrapW: w.width, wrapH: w.height, picW: w.width, picH: w.height };
+  }
+  const base = Math.min(w.width / vw, w.height / vh);
+  return { wrapW: w.width, wrapH: w.height, picW: vw * base, picH: vh * base };
 }
 
 function clampPan() {
   if (zoom.scale <= 1) { zoom.panX = 0; zoom.panY = 0; return; }
-  const r = videoWrap.getBoundingClientRect();
-  const maxPanX = r.width  * (zoom.scale - 1) / 2;
-  const maxPanY = r.height * (zoom.scale - 1) / 2;
+  const { wrapW, wrapH, picW, picH } = pictureRect();
+  // Clamp against the picture, not the element, so the letterbox bars can never
+  // be panned into view.
+  const maxPanX = Math.max(0, (picW * zoom.scale - wrapW) / 2);
+  const maxPanY = Math.max(0, (picH * zoom.scale - wrapH) / 2);
   zoom.panX = Math.max(-maxPanX, Math.min(maxPanX, zoom.panX));
   zoom.panY = Math.max(-maxPanY, Math.min(maxPanY, zoom.panY));
 }
@@ -653,27 +877,95 @@ function fingerDist(t) {
 
 function isZoomed() { return zoom.scale > 1.05; }
 
+// ── Fit / fill ────────────────────────────────────────────────────────────────
+// "Fit" shows the whole Mac screen (letterboxed). On a phone held upright that
+// leaves a strip too small to read, so "fill" scales the picture to cover the
+// viewport and lets you pan across it.
+const FIT_KEY = 'macagent_fit';
+
+function isPortrait() {
+  return window.innerHeight > window.innerWidth;
+}
+
+function effectiveFit() {
+  if (state.fitMode === 'fit' || state.fitMode === 'fill') return state.fitMode;
+  return (isTouchDevice && isPortrait()) ? 'fill' : 'fit';
+}
+
+function fillScale() {
+  const { wrapW, wrapH, picW, picH } = pictureRect();
+  if (!picW || !picH) return 1;
+  const s = Math.max(wrapW / picW, wrapH / picH);
+  return Math.min(ZOOM_MAX, Math.max(1, s));
+}
+
+// videoReady reports whether the stream's own dimensions are known yet. Until
+// they are, the fill scale cannot be computed — pictureRect falls back to the
+// viewport, which yields a scale of exactly 1 and a picture that stays
+// letterboxed while the button claims to be filling.
+function videoReady() {
+  return !!(screenEl.videoWidth && screenEl.videoHeight);
+}
+
+let fitRetry = null;
+let fitRetriesLeft = 0;
+function retryFitSoon() {
+  clearTimeout(fitRetry);
+  if (fitRetriesLeft <= 0) return;
+  fitRetry = setTimeout(() => {
+    fitRetriesLeft--;
+    if (videoReady()) applyFit(false);
+    else if (state.connected) retryFitSoon();
+  }, 250);
+}
+
+// preserveZoom keeps a pinch the user already made when the viewport merely
+// changes size (rotation, soft keyboard) instead of snapping back to the preset.
+function applyFit(preserveZoom) {
+  const mode = effectiveFit();
+  if (mode === 'fill' && !videoReady()) {
+    // Come back once the first frame has told us how big the screen is.
+    retryFitSoon();
+  }
+  if (mode === 'fill') {
+    const s = fillScale();
+    const userZoomed = preserveZoom && Math.abs(zoom.scale - zoom.fitScale) > 0.01;
+    if (!userZoomed) zoom.scale = s;
+    zoom.fitScale = s;
+    if (!preserveZoom) { zoom.panX = 0; zoom.panY = 0; }
+  } else {
+    zoom.fitScale = 1;
+    if (!preserveZoom) { zoom.scale = 1; zoom.panX = 0; zoom.panY = 0; }
+  }
+  clampPan();
+  applyZoom();
+  fitLabel.textContent = mode === 'fill' ? 'Fill' : 'Fit';
+  btnFit.classList.toggle('active', mode === 'fill');
+}
+
 // ── Remote cursor tracking ────────────────────────────────────────────────────
 const remoteCursor = { x: 0.5, y: 0.5 };
 
 function updateCursorDisplay() {
-  const r = screen.getBoundingClientRect();
-  const vw = screen.videoWidth  || r.width;
-  const vh = screen.videoHeight || r.height;
+  const r = screenEl.getBoundingClientRect();
+  const w = videoWrap.getBoundingClientRect();
+  const vw = screenEl.videoWidth  || r.width;
+  const vh = screenEl.videoHeight || r.height;
+  if (!vw || !vh) return;
   const scale = Math.min(r.width / vw, r.height / vh);
   const rw = vw * scale;
   const rh = vh * scale;
-  const ox = (r.width  - rw) / 2;
-  const oy = (r.height - rh) / 2;
-  const px = ox + remoteCursor.x * rw;
-  const py = oy + remoteCursor.y * rh;
-  cursor.style.left = px + 'px';
-  cursor.style.top  = py + 'px';
+  // r is the transformed rect, so zoom and pan are already baked in; offset it
+  // back into the wrapper the cursor is positioned against.
+  const ox = (r.left - w.left) + (r.width  - rw) / 2;
+  const oy = (r.top  - w.top)  + (r.height - rh) / 2;
+  cursor.style.left = (ox + remoteCursor.x * rw) + 'px';
+  cursor.style.top  = (oy + remoteCursor.y * rh) + 'px';
 }
 
 function moveCursorRel(dx, dy) {
-  const vw = screen.videoWidth  || 1600;
-  const vh = screen.videoHeight || 900;
+  const vw = screenEl.videoWidth  || 1600;
+  const vh = screenEl.videoHeight || 900;
   remoteCursor.x = Math.max(0, Math.min(1, remoteCursor.x + dx / vw));
   remoteCursor.y = Math.max(0, Math.min(1, remoteCursor.y + dy / vh));
   updateCursorDisplay();
@@ -696,7 +988,9 @@ function showCursorRipple() {
 const $ = id => document.getElementById(id);
 const dot         = $('dot');
 const statusText  = $('statusText');
-const screen      = $('screen');
+// Named screenEl, not screen: the latter shadows window.screen and with it the
+// orientation API.
+const screenEl    = $('screen');
 const placeholder = $('placeholder');
 const overlay     = $('connectOverlay');
 const hostInput   = $('hostInput');
@@ -707,14 +1001,93 @@ const videoWrap   = $('videoWrap');
 const cursor      = $('cursor');
 const kbHint      = $('kbHint');
 const kbCapture   = $('kbCapture');
+const btnQuality  = $('btnQuality');
+const qualityLabel = $('qualityLabel');
 const btnKb       = $('btnKb');
+const btnMode     = $('btnMode');
+const btnFit      = $('btnFit');
+const modeLabel   = $('modeLabel');
+const fitLabel    = $('fitLabel');
 const btnScroll   = $('btnScroll');
-const btnRightClick = $('btnRightClick');
 const btnFullscreen = $('btnFullscreen');
 const btnDisconnect = $('btnDisconnect');
 
+const isTouchDevice = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+
 // ICE servers received from the server after auth (includes TURN credentials).
 let serverICE = [{ urls: 'stun:stun.l.google.com:19302' }];
+
+// ── Stream quality ───────────────────────────────────────────────────────────
+// The phone knows what the Mac cannot: whether it is on cellular, and whether
+// the user wants detail or smoothness right now. "Auto" sends empty values, which
+// the agent reads as "use the settings you were started with".
+const QUALITY_KEY = 'macagent_quality';
+const HUD_KEY = 'macagent_hud';
+const QUALITY_PRESETS = [
+  { id: 'auto',   label: 'Auto',   payload: {} },
+  { id: 'sharp',  label: 'Sharp',  payload: { width: 1600, fps: 30, bitrate: '6M' } },
+  { id: 'smooth', label: 'Smooth', payload: { width: 1280, fps: 30, bitrate: '3M' } },
+  { id: 'saver',  label: 'Saver',  payload: { width: 960,  fps: 20, bitrate: '1200K' } },
+];
+
+function currentQuality() {
+  return QUALITY_PRESETS.find(q => q.id === state.quality) || QUALITY_PRESETS[0];
+}
+
+// A phone is not a desktop on the same LAN: the agent's own defaults are tuned
+// for a big screen, and pushing 6 Mbps at a handset over cellular mostly buys
+// queueing delay, which is felt as lag rather than seen as detail.
+function defaultQualityForDevice() {
+  if (!isTouchDevice) return 'auto';
+  const c = navigator.connection;
+  if (c && (c.saveData || /^(slow-)?2g$|^3g$/.test(c.effectiveType || ''))) return 'saver';
+  return 'smooth';
+}
+
+// Falling back is automatic; climbing back up is not. A link that just proved it
+// cannot hold a bitrate will not be talked into it again mid-session, and an
+// auto-upgrade would only restart the stream to rediscover that.
+function stepDownQuality() {
+  const next = { auto: 'smooth', sharp: 'smooth', smooth: 'saver' }[state.quality];
+  if (!next) return false;
+  state.quality = next;           // not persisted: this is the network, not a preference
+  updateQualityChip();
+  sendQuality();
+  showToast(`Weak connection — dropping to ${currentQuality().label}`, 3000);
+  return true;
+}
+
+function sendQuality() {
+  wsSend('quality', currentQuality().payload);
+}
+
+function updateQualityChip() {
+  const q = currentQuality();
+  qualityLabel.textContent = q.label;
+  btnQuality.classList.toggle('active', q.id !== 'auto');
+}
+
+// ── Saved interaction preferences ────────────────────────────────────────────
+const MODE_KEY = 'macagent_input_mode';
+{
+  const savedMode = localStorage.getItem(MODE_KEY);
+  if (savedMode === 'touch' || savedMode === 'trackpad') state.inputMode = savedMode;
+  const savedFit = localStorage.getItem(FIT_KEY);
+  if (savedFit === 'fit' || savedFit === 'fill') state.fitMode = savedFit;
+  const savedQuality = localStorage.getItem(QUALITY_KEY);
+  if (QUALITY_PRESETS.some(q => q.id === savedQuality)) {
+    state.quality = savedQuality;
+    state.autoAdapt = false;      // an explicit choice is not ours to override
+  } else {
+    state.quality = defaultQualityForDevice();
+  }
+  updateQualityChip();
+  state.showStats = localStorage.getItem(HUD_KEY) === '1';
+  modeLabel.textContent = state.inputMode === 'touch' ? 'Touch' : 'Pad';
+  btnMode.classList.toggle('active', state.inputMode === 'touch');
+  fitLabel.textContent = effectiveFit() === 'fill' ? 'Fill' : 'Fit';
+  btnFit.classList.toggle('active', effectiveFit() === 'fill');
+}
 
 // ── Persist last host (password stays in sessionStorage only) ────────────────
 const selfHost = (window.location.hostname && window.location.hostname !== 'localhost')
@@ -742,6 +1115,24 @@ function setStatus(label, cls) {
 
 function showError(msg) {
   errorMsg.textContent = msg;
+}
+
+const TOUCH_HINT_KEY = 'macagent_touch_hint';
+function maybeShowTouchHint() {
+  if (!isTouchDevice || state.inputMode !== 'touch') return;
+  if (localStorage.getItem(TOUCH_HINT_KEY)) return;
+  localStorage.setItem(TOUCH_HINT_KEY, '1');
+  showToast(effectiveFit() === 'fill'
+    ? 'Tap to click · hold then drag · Fit shows it all'
+    : 'Tap to click · hold then drag · swipe to scroll', 4500);
+}
+
+let toastTimer = null;
+function showToast(text, ms = 2000) {
+  kbHint.textContent = text;
+  kbHint.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => kbHint.classList.remove('show'), ms);
 }
 
 // ── Signaling helpers ─────────────────────────────────────────────────────────
@@ -778,6 +1169,102 @@ function scheduleReconnect(reason) {
   }, delay);
 }
 
+// ── Stream stats ─────────────────────────────────────────────────────────────
+// Derived from the watchdog's getStats poll, so the HUD costs nothing extra.
+const statsPrev = { bytes: 0, at: 0, lost: 0, recv: 0, loss: null };
+
+function resetStats() {
+  statsPrev.bytes = 0;
+  statsPrev.at = 0;
+  statsPrev.lost = 0;
+  statsPrev.recv = 0;
+  statsPrev.loss = null;
+  adapt.bad = 0;
+}
+
+// lossSince returns the packet loss over the last poll, or null until there is a
+// second sample to compare against. Cumulative totals would hide a link that has
+// only just started struggling.
+function lossSince(inbound) {
+  if (!inbound || typeof inbound.packetsReceived !== 'number') return null;
+  const lost = inbound.packetsLost || 0;
+  const recv = inbound.packetsReceived;
+  const dLost = Math.max(0, lost - statsPrev.lost);
+  const dRecv = Math.max(0, recv - statsPrev.recv);
+  const had = statsPrev.recv > 0;
+  statsPrev.lost = lost;
+  statsPrev.recv = recv;
+  if (!had || dLost + dRecv === 0) return null;
+  return dLost / (dLost + dRecv);
+}
+
+function transportKind(report) {
+  let pair = null;
+  report.forEach(s => {
+    if (s.type === 'candidate-pair' && (s.nominated || s.state === 'succeeded') && !pair) pair = s;
+  });
+  if (!pair) return null;
+  const typeOf = id => {
+    let t = null;
+    report.forEach(s => { if (s.id === id) t = s.candidateType; });
+    return t;
+  };
+  const local = typeOf(pair.localCandidateId);
+  const remote = typeOf(pair.remoteCandidateId);
+  // A relayed pair means the media is bouncing through TURN on the VPS rather
+  // than going phone-to-Mac, which costs a round trip in each direction.
+  if (local === 'relay' || remote === 'relay') return 'relay';
+  if (local === 'host' && remote === 'host') return 'direct';
+  return 'p2p';
+}
+
+function buildStats(inbound, rtt, loss, transport) {
+  const out = {};
+  if (inbound) {
+    if (inbound.frameWidth) out.size = `${inbound.frameWidth}×${inbound.frameHeight}`;
+    if (typeof inbound.framesPerSecond === 'number') out.fps = Math.round(inbound.framesPerSecond);
+    if (typeof inbound.bytesReceived === 'number') {
+      const now = performance.now();
+      const dt = now - statsPrev.at;
+      // Too short a gap turns rounding noise into an absurd rate.
+      if (statsPrev.at && dt > 200) {
+        const kbps = (inbound.bytesReceived - statsPrev.bytes) * 8 / dt;
+        if (kbps >= 0) out.rate = `${Math.round(kbps)} kbps`;
+      }
+      if (!statsPrev.at || dt > 200) {
+        statsPrev.bytes = inbound.bytesReceived;
+        statsPrev.at = now;
+      }
+    }
+  }
+  if (rtt !== null && rtt !== undefined) out.ping = `${Math.round(rtt * 1000)} ms`;
+  if (loss !== null) out.loss = `${(loss * 100).toFixed(1)}%`;
+  if (transport) out.path = transport;
+  out.quality = currentQuality().label + (state.autoAdapt ? '' : ' (set)');
+  out.view = `${effectiveFit()} ×${zoom.scale.toFixed(2)}`;
+  return out;
+}
+
+// ── Adapting to a weak link ──────────────────────────────────────────────────
+// Sustained loss means the encoder is sending more than the path can carry, and
+// the queue it builds is exactly what is felt as lag. One confident step down
+// beats a dozen twitchy ones, so it takes several bad polls in a row.
+const adapt = { bad: 0 };
+const LOSS_BAD = 0.03;
+const BAD_POLLS = 3;
+
+function maybeAdapt(loss) {
+  if (!state.autoAdapt || loss === null) return;
+  if (loss > LOSS_BAD) {
+    if (++adapt.bad >= BAD_POLLS) {
+      adapt.bad = 0;
+      stepDownQuality();
+    }
+  } else if (adapt.bad > 0) {
+    adapt.bad--;
+  }
+}
+
 // ── Stall watchdog ───────────────────────────────────────────────────────────
 function stopStallWatch() {
   if (state.stallTimer) {
@@ -801,15 +1288,26 @@ function startStallWatch(pc) {
     }
 
     let frames = null;
+    let inbound = null;
+    let rtt = null;
+    let transport = null;
     try {
       const report = await pc.getStats();
       report.forEach(s => {
         if (s.type === 'inbound-rtp' && s.kind === 'video' && typeof s.framesDecoded === 'number') {
           frames = s.framesDecoded;
+          inbound = s;
+        } else if (s.type === 'candidate-pair' && s.nominated && typeof s.currentRoundTripTime === 'number') {
+          rtt = s.currentRoundTripTime;
         }
       });
+      transport = transportKind(report);
     } catch { return; }
     if (frames === null) return;
+
+    const loss = lossSince(inbound);
+    if (state.showStats) renderHud(buildStats(inbound, rtt, loss, transport));
+    maybeAdapt(loss);
 
     if (frames !== lastFrames) {
       lastFrames = frames;
@@ -831,8 +1329,10 @@ function restartStream(reason) {
   if (state.pc) { try { state.pc.close(); } catch {} state.pc = null; }
   state.dc = null;
   state.connected = false;
-  screen.srcObject = null;
+  screenEl.srcObject = null;
   cursor.classList.remove('visible');
+  cursor.classList.remove('dragging');
+  touch.dragging = false;
   placeholder.style.display = 'flex';
   if (reason) showError(reason);
 
@@ -858,7 +1358,7 @@ function reconnectNow() {
   if (!state.wantConnected) return;
   if (state.connected) {
     // Still connected, but iOS pauses the element when the tab goes away.
-    screen.play().catch(() => {});
+    screenEl.play().catch(() => {});
     return;
   }
   cancelRetry();
@@ -918,6 +1418,9 @@ async function connect(host, password, isRetry) {
           serverICE = msg.payload.iceServers;
         }
         setStatus('Handshaking\u2026', 'connecting');
+        // Record the preset before asking for a stream, so the first session is
+        // already built with it rather than restarted a moment later.
+        sendQuality();
         wsSend('hello');
         break;
       case 'auth_fail':
@@ -981,6 +1484,17 @@ async function connect(host, password, isRetry) {
   };
 }
 
+// Browsers hold a jitter buffer sized for watching video — a few hundred
+// milliseconds of smoothing that, when you are driving a cursor, is just lag.
+// Both properties are best-effort and ignored where unsupported.
+function minimiseBuffering(pc) {
+  for (const r of pc.getReceivers()) {
+    if (r.track && r.track.kind !== 'video') continue;
+    try { r.jitterBufferTarget = 0; } catch {}
+    try { r.playoutDelayHint = 0; } catch {}
+  }
+}
+
 async function handleOffer(offer) {
   // A re-offer (stream restart) must not leave the previous peer connection
   // running — it would keep an ICE agent and a decoder alive for nothing.
@@ -1003,8 +1517,13 @@ async function handleOffer(offer) {
       overlay.style.display = 'none';
       placeholder.style.display = 'none';
       cursor.classList.add('visible');
+      hud.classList.toggle('visible', state.showStats);
+      resetStats();
+      fitRetriesLeft = 40;   // ~10s of grace for the first frame to arrive
+      applyFit(false);
       updateCursorDisplay();
       startStallWatch(pc);
+      maybeShowTouchHint();
     } else if (s === 'disconnected') {
       // Transient on mobile — the ICE agent usually recovers without help, so
       // keep the video element and the session alive and just say so.
@@ -1035,19 +1554,23 @@ async function handleOffer(offer) {
         const msg = JSON.parse(data);
         if (msg.t === 'cursor') {
           moveCursorAbs(msg.x, msg.y);
+        } else if (msg.t === 'clip') {
+          receiveClip(msg.text);
         }
       } catch {}
     };
   };
 
   pc.ontrack = ({ streams }) => {
-    screen.srcObject = streams[0];
+    screenEl.srcObject = streams[0];
+    minimiseBuffering(pc);
     // Safari leaves the element paused when a stream is attached outside a user
     // gesture, which looks exactly like a frozen connection.
-    screen.play().catch(() => {});
+    screenEl.play().catch(() => {});
   };
 
   await pc.setRemoteDescription(offer);
+  minimiseBuffering(pc);   // receivers exist from here; ontrack repeats it
   const answer = await pc.createAnswer();
   await pc.setLocalDescription(answer);
   wsSend('answer', answer);
@@ -1065,7 +1588,10 @@ function teardownPeer() {
   }
   state.dc = null;
   state.connected = false;
-  screen.srcObject = null;
+  screenEl.srcObject = null;
+  // Losing the channel mid-drag would otherwise leave the button latched down.
+  touch.dragging = false;
+  cursor.classList.remove('dragging');
 }
 
 // disconnect is the user asking to stop; it also stops the retry loop.
@@ -1077,9 +1603,9 @@ function disconnect() {
 
 // ── Mouse input (desktop) ─────────────────────────────────────────────────────
 function videoToNorm(clientX, clientY) {
-  const r = screen.getBoundingClientRect();
-  const vw = screen.videoWidth  || r.width;
-  const vh = screen.videoHeight || r.height;
+  const r = screenEl.getBoundingClientRect();
+  const vw = screenEl.videoWidth  || r.width;
+  const vh = screenEl.videoHeight || r.height;
   const scale = Math.min(r.width / vw, r.height / vh);
   const rw = vw * scale;
   const rh = vh * scale;
@@ -1202,18 +1728,75 @@ function scrollReset() {
 }
 
 // ── Touch input (mobile / iPhone) ─────────────────────────────────────────────
+// Two interaction models share these handlers:
+//
+//   touch mode    tap clicks the point you tapped, hold-then-drag drags, hold-
+//                 then-release opens the context menu, swipe scrolls.
+//   trackpad mode the original relative model: the finger pushes the cursor,
+//                 a tap clicks wherever the cursor ended up.
 const touch = {
   startX: 0, startY: 0,
   lastX: 0,  lastY: 0,
   startTime: 0,
   moved: false,
   longPressTimer: null,
+  longPressed: false,
+  dragging: false,
+  didScroll: false,
+  scrollPrimed: false,
+  lastSend: 0,
   lastTapTime: 0,
+  lastTapX: 0, lastTapY: 0,
 };
 
-const LONG_PRESS_MS  = 500;
-const TAP_MAX_MOVE   = 10;
-const DTAP_INTERVAL  = 300;
+const LONG_PRESS_MS   = 500;
+const TAP_MAX_MOVE    = 10;
+const DTAP_INTERVAL   = 300;
+const DTAP_MAX_MOVE   = 30;
+const DRAG_START_MOVE = 8;
+// robotgo runs input on a single goroutine behind a bounded queue, so a drag
+// sends about one position per frame instead of every touchmove the browser emits.
+const DRAG_SEND_MS    = 16;
+
+function sendMoveAbs(p) {
+  dcSend({ t: 'moveabs', x: p.x, y: p.y });
+  moveCursorAbs(p.x, p.y);
+}
+
+function startDrag() {
+  sendMoveAbs(videoToNorm(touch.startX, touch.startY));
+  dcSend({ t: 'down', button: 'left' });
+  touch.dragging = true;
+  cursor.classList.add('dragging');
+  navigator.vibrate?.(15);
+}
+
+function dragTo(clientX, clientY) {
+  const now = performance.now();
+  if (now - touch.lastSend < DRAG_SEND_MS) return;
+  touch.lastSend = now;
+  sendMoveAbs(videoToNorm(clientX, clientY));
+}
+
+function endDrag(clientX, clientY) {
+  if (!touch.dragging) return;
+  if (clientX !== undefined) sendMoveAbs(videoToNorm(clientX, clientY));
+  dcSend({ t: 'up', button: 'left' });
+  touch.dragging = false;
+  cursor.classList.remove('dragging');
+}
+
+function onLongPress() {
+  if (touch.moved) return;
+  touch.longPressed = true;
+  navigator.vibrate?.(30);
+  if (state.inputMode !== 'touch') {
+    // Trackpad mode right-clicks straight away, at wherever the cursor sits.
+    dcSend({ t: 'click', button: 'right' });
+    showCursorRipple();
+  }
+  // Touch mode waits: moving from here starts a drag, releasing right-clicks.
+}
 
 videoWrap.addEventListener('touchstart', e => {
   if (!state.connected) return;
@@ -1227,22 +1810,24 @@ videoWrap.addEventListener('touchstart', e => {
     touch.startY = touch.lastY = t.clientY;
     touch.startTime = Date.now();
     touch.moved = false;
-    touch.longPressTimer = setTimeout(() => {
-      if (!touch.moved) {
-        dcSend({ t: 'click', button: 'right' });
-        navigator.vibrate?.(30);
-      }
-    }, LONG_PRESS_MS);
+    touch.longPressed = false;
+    touch.didScroll = false;
+    touch.scrollPrimed = false;
+    touch.longPressTimer = setTimeout(onLongPress, LONG_PRESS_MS);
   }
 
   if (e.touches.length === 2) {
     clearTimeout(touch.longPressTimer);
+    endDrag();   // a second finger ends a drag rather than confusing it
     scrollReset();
     touch.startX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
     touch.startY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
     touch.lastX  = touch.startX;
     touch.lastY  = touch.startY;
     touch.moved  = false;
+    touch.longPressed = false;
+    touch.didScroll = false;
+    touch.scrollPrimed = false;
     zoom.startDist  = fingerDist(e.touches);
     zoom.startScale = zoom.scale;
     zoom.pinching   = false;
@@ -1253,44 +1838,75 @@ videoWrap.addEventListener('touchmove', e => {
   if (!state.connected) return;
   e.preventDefault();
 
-  if (e.touches.length === 1 && !state.scrollMode) {
-    const t = e.touches[0];
-    const dx = t.clientX - touch.lastX;
-    const dy = t.clientY - touch.lastY;
-    touch.lastX = t.clientX;
-    touch.lastY = t.clientY;
-    const dist = Math.hypot(t.clientX - touch.startX, t.clientY - touch.startY);
-    if (dist > TAP_MAX_MOVE) touch.moved = true;
-    if (dx !== 0 || dy !== 0) {
-      if (isZoomed()) {
-        zoom.panX += dx; zoom.panY += dy;
-        clampPan(); applyZoom();
-      } else {
-        dcSend({ t: 'move', dx: Math.round(dx), dy: Math.round(dy) });
-      }
-    }
-  } else if (e.touches.length === 2) {
+  if (e.touches.length === 2) {
     const mx = (e.touches[0].clientX + e.touches[1].clientX) / 2;
     const my = (e.touches[0].clientY + e.touches[1].clientY) / 2;
     const curDist = fingerDist(e.touches);
-    const distRatio = curDist / zoom.startDist;
+    const distRatio = curDist / (zoom.startDist || curDist);
     if (Math.abs(distRatio - 1) > 0.08) zoom.pinching = true;
     if (zoom.pinching) {
       zoom.scale = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, zoom.startScale * distRatio));
       zoom.panX += mx - touch.lastX; zoom.panY += my - touch.lastY;
       clampPan(); applyZoom();
-      touch.moved = true;
     } else {
+      if (state.inputMode === 'touch' && !touch.scrollPrimed) {
+        touch.scrollPrimed = true;
+        sendMoveAbs(videoToNorm(touch.startX, touch.startY));
+      }
       scrollFeed(mx - touch.lastX, -(my - touch.lastY));
-      touch.moved = true;
+      touch.didScroll = true;
     }
-    touch.lastX = mx; touch.lastY = my;
-  } else if (state.scrollMode && e.touches.length === 1) {
-    const t = e.touches[0];
-    const dx = t.clientX - touch.lastX; const dy = t.clientY - touch.lastY;
-    touch.lastX = t.clientX; touch.lastY = t.clientY;
     touch.moved = true;
+    touch.lastX = mx; touch.lastY = my;
+    return;
+  }
+
+  if (e.touches.length !== 1) return;
+
+  const t = e.touches[0];
+  const dx = t.clientX - touch.lastX;
+  const dy = t.clientY - touch.lastY;
+  touch.lastX = t.clientX;
+  touch.lastY = t.clientY;
+  const dist = Math.hypot(t.clientX - touch.startX, t.clientY - touch.startY);
+  if (dist > TAP_MAX_MOVE) touch.moved = true;
+
+  if (touch.dragging) { dragTo(t.clientX, t.clientY); return; }
+
+  if (state.inputMode === 'touch') {
+    if (touch.longPressed) {
+      if (dist > DRAG_START_MOVE) { startDrag(); dragTo(t.clientX, t.clientY); }
+      return;
+    }
+    if (dx === 0 && dy === 0) return;
+    if (!state.scrollMode && isZoomed()) {
+      zoom.panX += dx; zoom.panY += dy;
+      clampPan(); applyZoom();
+      return;
+    }
+    // Put the pointer under the finger first, so the scroll reaches the window
+    // the user is actually looking at rather than wherever the cursor was left.
+    if (!touch.scrollPrimed) {
+      touch.scrollPrimed = true;
+      sendMoveAbs(videoToNorm(touch.startX, touch.startY));
+    }
     scrollFeed(dx, -dy);
+    touch.didScroll = true;
+    return;
+  }
+
+  // Trackpad mode
+  if (state.scrollMode) {
+    scrollFeed(dx, -dy);
+    touch.didScroll = true;
+    return;
+  }
+  if (dx === 0 && dy === 0) return;
+  if (isZoomed()) {
+    zoom.panX += dx; zoom.panY += dy;
+    clampPan(); applyZoom();
+  } else {
+    dcSend({ t: 'move', dx: Math.round(dx), dy: Math.round(dy) });
   }
 }, { passive: false });
 
@@ -1298,14 +1914,51 @@ videoWrap.addEventListener('touchend', e => {
   if (!state.connected) return;
   e.preventDefault();
   clearTimeout(touch.longPressTimer);
-  const elapsed = Date.now() - touch.startTime;
-  const wasTap = !touch.moved && elapsed < LONG_PRESS_MS;
-  if (zoom.scale < 1.05) resetZoom();
-  if (touch.moved && !zoom.pinching && !wasTap && e.touches.length === 0) {
-    scrollMomentumStart();
+
+  const allUp = e.touches.length === 0;
+  const ct = e.changedTouches[0];
+
+  if (touch.dragging) {
+    endDrag(ct?.clientX, ct?.clientY);
+    if (allUp) { zoom.pinching = false; touch.longPressed = false; }
+    return;
   }
-  if (e.changedTouches.length === 1 && e.touches.length === 0) {
-    if (wasTap) {
+
+  const elapsed = Date.now() - touch.startTime;
+  // A press that already turned into a long press is never also a tap, whatever
+  // the clock says.
+  const wasHold = !touch.moved && touch.longPressed;
+  const wasTap  = !touch.moved && !touch.longPressed && elapsed < LONG_PRESS_MS;
+
+  if (zoom.scale < 1.05) resetZoom();
+  if (touch.didScroll && !zoom.pinching && allUp) scrollMomentumStart();
+
+  if (e.changedTouches.length === 1 && allUp && ct) {
+    if (state.inputMode === 'touch') {
+      if (wasHold) {
+        sendMoveAbs(videoToNorm(touch.startX, touch.startY));
+        dcSend({ t: 'click', button: 'right' });
+        showCursorRipple();
+      } else if (wasTap) {
+        scrollReset();
+        sendMoveAbs(videoToNorm(ct.clientX, ct.clientY));
+        const now = Date.now();
+        const near = Math.hypot(ct.clientX - touch.lastTapX, ct.clientY - touch.lastTapY) < DTAP_MAX_MOVE;
+        const isDoubleTap = near && (now - touch.lastTapTime) < DTAP_INTERVAL;
+        touch.lastTapTime = isDoubleTap ? 0 : now;
+        touch.lastTapX = ct.clientX;
+        touch.lastTapY = ct.clientY;
+        if (isDoubleTap) {
+          dcSend({ t: 'dblclick', button: 'left' });
+        } else if (state.nextRightClick) {
+          dcSend({ t: 'click', button: 'right' });
+          clearRightClickArm();
+        } else {
+          dcSend({ t: 'click', button: 'left' });
+        }
+        showCursorRipple();
+      }
+    } else if (wasTap) {
       scrollReset();
       const now = Date.now();
       const isDoubleTap = (now - touch.lastTapTime) < DTAP_INTERVAL;
@@ -1314,10 +1967,9 @@ videoWrap.addEventListener('touchend', e => {
         if (isZoomed()) { resetZoom(); }
         else {
           zoom.scale = 2.5;
-          const t = e.changedTouches[0];
           const r = videoWrap.getBoundingClientRect();
-          const cx = t.clientX - r.left - r.width / 2;
-          const cy = t.clientY - r.top - r.height / 2;
+          const cx = ct.clientX - r.left - r.width / 2;
+          const cy = ct.clientY - r.top - r.height / 2;
           zoom.panX = -cx * (zoom.scale - 1);
           zoom.panY = -cy * (zoom.scale - 1);
           clampPan(); applyZoom();
@@ -1326,19 +1978,30 @@ videoWrap.addEventListener('touchend', e => {
       } else if (state.nextRightClick) {
         dcSend({ t: 'click', button: 'right' });
         showCursorRipple();
-        state.nextRightClick = false;
-        btnRightClick.classList.remove('active');
+        clearRightClickArm();
       } else {
         dcSend({ t: 'click', button: 'left' });
         showCursorRipple();
       }
     }
   }
-  if (e.touches.length === 0 && e.changedTouches.length === 2 && !touch.moved && !zoom.pinching) {
+
+  if (allUp && e.changedTouches.length === 2 && !touch.moved && !zoom.pinching) {
+    if (state.inputMode === 'touch') sendMoveAbs(videoToNorm(touch.startX, touch.startY));
     dcSend({ t: 'click', button: 'right' });
+    showCursorRipple();
   }
-  if (e.touches.length === 0) zoom.pinching = false;
+  if (allUp) { zoom.pinching = false; touch.longPressed = false; }
 }, { passive: false });
+
+// A finger leaving the surface (system gesture, incoming call) must not leave
+// the remote mouse button stuck down.
+videoWrap.addEventListener('touchcancel', () => {
+  clearTimeout(touch.longPressTimer);
+  endDrag();
+  touch.longPressed = false;
+  zoom.pinching = false;
+}, { passive: true });
 
 // ── Desktop keyboard ──────────────────────────────────────────────────────────
 const KEY_MAP = {
@@ -1376,8 +2039,7 @@ function showKb() {
   kbCapture.focus();
   btnKb.classList.add('active');
   keyBar.classList.add('visible');
-  kbHint.classList.add('show');
-  setTimeout(() => kbHint.classList.remove('show'), 2000);
+  showToast('Keyboard active');
 }
 
 function hideKb() {
@@ -1441,6 +2103,53 @@ kbCapture.addEventListener('blur', () => {
   }, 80);
 });
 
+// ── Clipboard bridge ─────────────────────────────────────────────────────────
+// Going through the Mac's own clipboard survives emoji, newlines and long text
+// that replaying keystrokes one character at a time mangles.
+async function pasteToMac() {
+  if (!state.connected) return;
+  let text;
+  try {
+    text = await navigator.clipboard.readText();
+  } catch {
+    showToast('Your browser blocked clipboard access', 3000);
+    return;
+  }
+  if (!text) { showToast('Nothing on the phone clipboard'); return; }
+  dcSend({ t: 'clipset', text });
+  dcSend({ t: 'key', key: 'v', mods: ['cmd'] });
+  showToast('Pasted into the Mac');
+}
+
+// Safari only allows a clipboard write inside the gesture that asked for it, and
+// the Mac's answer arrives a round trip later — so a blocked write is held for
+// the next tap, which is a gesture again.
+let pendingClip = null;
+
+function copyFromMac() {
+  if (!state.connected) return;
+  if (pendingClip !== null) {
+    const text = pendingClip;
+    pendingClip = null;
+    navigator.clipboard.writeText(text)
+      .then(() => showToast('Copied from the Mac'))
+      .catch(() => showToast('Your browser blocked clipboard access', 3000));
+    return;
+  }
+  dcSend({ t: 'clipget' });
+}
+
+async function receiveClip(text) {
+  if (!text) { showToast('Nothing on the Mac clipboard'); return; }
+  try {
+    await navigator.clipboard.writeText(text);
+    showToast('Copied from the Mac');
+  } catch {
+    pendingClip = text;
+    showToast('Tap Copy once more to save it', 4000);
+  }
+}
+
 // ── Accessory key bar (arrows, special keys, modifiers) ──────────────────────
 const heldMods = new Set();
 
@@ -1452,6 +2161,10 @@ function releaseAllMods() {
 function handleKeyBarBtn(btn) {
   // Dismiss button
   if (btn === kbDismissBtn) { hideKb(); return; }
+
+  const act = btn.dataset.act;
+  if (act === 'paste') { pasteToMac(); return; }
+  if (act === 'copy')  { copyFromMac(); return; }
 
   // Modifier toggle (sticky)
   const mod = btn.dataset.mod;
@@ -1522,15 +2235,149 @@ if (window.visualViewport) {
   });
 }
 
+// ── Shortcut sheet ───────────────────────────────────────────────────────────
+// Everything a phone cannot type: the macOS chords that need a physical keyboard.
+const SHORTCUTS = [
+  { name: 'Spotlight',    combo: '⌘ Space', key: 'space',  mods: ['cmd'] },
+  { name: 'Switch app',   combo: '⌘ Tab',   key: 'tab',    mods: ['cmd'] },
+  { name: 'Mission Ctrl', combo: '⌃ ↑',     key: 'up',     mods: ['ctrl'] },
+  { name: 'Copy',         combo: '⌘ C',     key: 'c',      mods: ['cmd'] },
+  { name: 'Paste',        combo: '⌘ V',     key: 'v',      mods: ['cmd'] },
+  { name: 'Cut',          combo: '⌘ X',     key: 'x',      mods: ['cmd'] },
+  { name: 'Undo',         combo: '⌘ Z',     key: 'z',      mods: ['cmd'] },
+  { name: 'Select all',   combo: '⌘ A',     key: 'a',      mods: ['cmd'] },
+  { name: 'Save',         combo: '⌘ S',     key: 's',      mods: ['cmd'] },
+  { name: 'Find',         combo: '⌘ F',     key: 'f',      mods: ['cmd'] },
+  { name: 'Close window', combo: '⌘ W',     key: 'w',      mods: ['cmd'] },
+  { name: 'Quit app',     combo: '⌘ Q',     key: 'q',      mods: ['cmd'] },
+  { name: 'Screenshot',   combo: '⌘⇧ 4',    key: '4',      mods: ['cmd', 'shift'] },
+  { name: 'Force quit',   combo: '⌘⌥ Esc',  key: 'escape', mods: ['cmd', 'alt'] },
+];
+
+const sheet = $('sheet');
+const sheetScrim = $('sheetScrim');
+const btnMore = $('btnMore');
+const sheetRightClick = $('sheetRightClick');
+const sheetHud = $('sheetHud');
+const hud = $('hud');
+
+for (const sc of SHORTCUTS) {
+  const b = document.createElement('button');
+  b.className = 'sheetBtn';
+  b.innerHTML = `${sc.name}<span class="combo"></span>`;
+  b.querySelector('.combo').textContent = sc.combo;
+  b.addEventListener('click', () => {
+    if (!state.connected) return;
+    dcSend({ t: 'key', key: sc.key, mods: sc.mods });
+    showToast(sc.name);
+    closeSheet();
+  });
+  $('shortcutGrid').appendChild(b);
+}
+
+function openSheet() {
+  syncSheet();
+  sheet.classList.add('open');
+  sheetScrim.classList.add('open');
+  btnMore.classList.add('active');
+}
+
+function closeSheet() {
+  sheet.classList.remove('open');
+  sheetScrim.classList.remove('open');
+  btnMore.classList.toggle('active', state.nextRightClick || state.showStats);
+}
+
+function syncSheet() {
+  sheetRightClick.classList.toggle('active', state.nextRightClick);
+  sheetHud.classList.toggle('active', state.showStats);
+  if (!sheet.classList.contains('open')) {
+    btnMore.classList.toggle('active', state.nextRightClick || state.showStats);
+  }
+}
+
+// Called once the armed right click has been spent.
+function clearRightClickArm() {
+  state.nextRightClick = false;
+  syncSheet();
+}
+
+btnMore.addEventListener('click', () => {
+  sheet.classList.contains('open') ? closeSheet() : openSheet();
+});
+sheetScrim.addEventListener('click', closeSheet);
+
+sheetRightClick.addEventListener('click', () => {
+  state.nextRightClick = !state.nextRightClick;
+  syncSheet();
+  showToast(state.nextRightClick ? 'Next tap right-clicks' : 'Right click off');
+  if (state.nextRightClick) closeSheet();
+});
+
+sheetHud.addEventListener('click', () => {
+  state.showStats = !state.showStats;
+  localStorage.setItem(HUD_KEY, state.showStats ? '1' : '0');
+  hud.classList.toggle('visible', state.showStats);
+  if (!state.showStats) hud.textContent = '';
+  syncSheet();
+});
+
+for (const b of sheet.querySelectorAll('.sheetBtn[data-act]')) {
+  b.addEventListener('click', () => {
+    if (b.dataset.act === 'paste') pasteToMac(); else copyFromMac();
+    closeSheet();
+  });
+}
+
+// ── Stats HUD ────────────────────────────────────────────────────────────────
+function renderHud(s) {
+  if (!state.showStats) return;
+  hud.innerHTML = '';
+  for (const [k, v] of Object.entries(s)) {
+    const row = document.createElement('div');
+    row.innerHTML = `${k} <b></b>`;
+    row.querySelector('b').textContent = v;
+    hud.appendChild(row);
+  }
+}
+
 // ── Toolbar buttons ───────────────────────────────────────────────────────────
+btnMode.addEventListener('click', () => {
+  state.inputMode = state.inputMode === 'touch' ? 'trackpad' : 'touch';
+  localStorage.setItem(MODE_KEY, state.inputMode);
+  modeLabel.textContent = state.inputMode === 'touch' ? 'Touch' : 'Pad';
+  btnMode.classList.toggle('active', state.inputMode === 'touch');
+  endDrag();
+  showToast(state.inputMode === 'touch'
+    ? 'Touch — tap to click, hold then drag'
+    : 'Trackpad — swipe to move the pointer', 2600);
+});
+
+btnFit.addEventListener('click', () => {
+  state.fitMode = effectiveFit() === 'fill' ? 'fit' : 'fill';
+  localStorage.setItem(FIT_KEY, state.fitMode);
+  fitRetriesLeft = 20;   // in case it is tapped before the first frame
+  applyFit();
+  showToast(state.fitMode === 'fill' ? 'Filling the screen — drag to pan' : 'Whole screen');
+});
+
+btnQuality.addEventListener('click', () => {
+  const i = QUALITY_PRESETS.findIndex(q => q.id === state.quality);
+  state.quality = QUALITY_PRESETS[(i + 1) % QUALITY_PRESETS.length].id;
+  localStorage.setItem(QUALITY_KEY, state.quality);
+  state.autoAdapt = false;   // stop second-guessing a deliberate choice
+  updateQualityChip();
+  if (state.connected) {
+    sendQuality();
+    showToast(`Quality: ${currentQuality().label} — restarting the stream`, 2500);
+  } else {
+    showToast(`Quality: ${currentQuality().label}`);
+  }
+});
+
 btnScroll.addEventListener('click', () => {
   state.scrollMode = !state.scrollMode;
   btnScroll.classList.toggle('active', state.scrollMode);
-});
-
-btnRightClick.addEventListener('click', () => {
-  state.nextRightClick = !state.nextRightClick;
-  btnRightClick.classList.toggle('active', state.nextRightClick);
 });
 
 btnFullscreen.addEventListener('click', async () => {
@@ -1540,15 +2387,18 @@ btnFullscreen.addEventListener('click', async () => {
   }
   if (document.documentElement.requestFullscreen) {
     await document.documentElement.requestFullscreen().catch(() => {});
+    // Only allowed in fullscreen, and unsupported on iOS \u2014 failure is expected.
+    try { await window.screen?.orientation?.lock?.('landscape'); } catch {}
     return;
   }
-  if (screen.webkitEnterFullscreen) {
-    try { screen.webkitEnterFullscreen(); return; } catch {}
-  }
-  if (navigator.standalone === false || !window.matchMedia('(display-mode: standalone)').matches) {
-    setStatus('Tap Share \u2192 Add to Home Screen for fullscreen', '');
-    setTimeout(() => { if (state.connected) setStatus('Connected', 'connected'); }, 4000);
-  }
+  // iPhone Safari has no Fullscreen API for ordinary elements. The video element
+  // does have one, but it hands the picture to the native player and swallows
+  // every touch \u2014 useless for a remote desktop. Installing to the home screen is
+  // the real route to a chrome-less window.
+  const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+  showToast(standalone
+    ? 'Already running as an app'
+    : 'Tap Share \u2192 Add to Home Screen for fullscreen', 4500);
 });
 
 btnDisconnect.addEventListener('click', () => {
@@ -1582,6 +2432,35 @@ async function handleConnect() {
 connectBtn.addEventListener('click', handleConnect);
 hostInput.addEventListener('keydown', e => { if (e.key === 'Enter') passwordInput.focus(); });
 passwordInput.addEventListener('keydown', e => { if (e.key === 'Enter') handleConnect(); });
+
+// ── Keep the picture fitted ──────────────────────────────────────────────────
+// The fill scale depends on both the video's own size and the viewport, so it is
+// recomputed whenever either changes — including when the Mac's resolution does.
+// Which of these actually carries the first known dimensions varies by browser,
+// and Safari is the awkward one — so listen to all of them and let applyFit be
+// idempotent.
+for (const ev of ['loadedmetadata', 'loadeddata', 'canplay', 'playing', 'resize']) {
+  screenEl.addEventListener(ev, () => applyFit(false));
+}
+
+let refitTimer = null;
+function scheduleRefit() {
+  clearTimeout(refitTimer);
+  refitTimer = setTimeout(() => applyFit(true), 150);
+}
+window.addEventListener('resize', scheduleRefit);
+window.addEventListener('orientationchange', scheduleRefit);
+window.screen?.orientation?.addEventListener?.('change', scheduleRefit);
+
+// ── Install as an app ────────────────────────────────────────────────────────
+// Standalone mode is the practical answer to iOS having no Fullscreen API for
+// anything but <video>: added to the home screen, the client runs without Safari's
+// chrome and gets the whole display.
+if ('serviceWorker' in navigator && location.protocol === 'https:') {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  });
+}
 
 // ── Fullscreen change ─────────────────────────────────────────────────────────
 document.addEventListener('fullscreenchange', () => {
