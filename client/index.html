@@ -12,7 +12,7 @@
   <link rel="icon" href="icon-192.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
   <title>Mac Remote</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -33,6 +33,9 @@
       --danger: #FF6B6B;
       --success: #51CF66;
       --warn: #FFD43B;
+      --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+      --drawer-w: 288px;
+      --ink: #0B0B12;
     }
 
     html, body {
@@ -392,8 +395,9 @@
 
     /* ── Keyboard hint ── */
     #kbHint {
-      position: absolute;
-      bottom: 80px;
+      position: fixed;
+      z-index: 40;
+      bottom: calc(var(--toolbar-h) + 16px + env(safe-area-inset-bottom));
       left: 50%;
       transform: translateX(-50%) translateY(8px);
       background: var(--surface-elevated);
@@ -598,6 +602,774 @@
       transition: flex 0.25s ease;
     }
 
+
+    /* ── Views ── */
+    .view {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    .view[hidden] { display: none; }
+
+    .iconBtn {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 44px;
+      height: 44px;
+      flex-shrink: 0;
+      border: none;
+      border-radius: 14px;
+      background: transparent;
+      color: var(--text);
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      transition: background 0.2s, color 0.2s;
+    }
+    .iconBtn:hover { background: rgba(255,255,255,0.06); }
+    .iconBtn:active { background: rgba(255,255,255,0.1); }
+    .iconBtn[aria-pressed="true"] { color: var(--accent-light); }
+    button:focus-visible, input:focus-visible, textarea:focus-visible {
+      outline: 2px solid var(--accent-light);
+      outline-offset: 2px;
+    }
+    #btnMenu { margin-left: -12px; }
+    .menuPip {
+      position: absolute;
+      top: 10px; right: 9px;
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--accent-light);
+      box-shadow: 0 0 0 2px var(--ink);
+      display: none;
+    }
+    .menuPip.show { display: block; }
+
+    /* ── Drawer ── */
+    #drawerScrim {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.55);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.25s;
+      z-index: 50;
+    }
+    #drawerScrim.open { opacity: 1; pointer-events: auto; }
+
+    #drawer {
+      position: fixed;
+      top: 0; bottom: 0; left: 0;
+      width: min(var(--drawer-w), 86vw);
+      display: flex;
+      flex-direction: column;
+      padding: calc(14px + env(safe-area-inset-top)) 12px calc(14px + env(safe-area-inset-bottom));
+      background: rgba(14, 14, 20, 0.94);
+      backdrop-filter: blur(28px) saturate(1.4);
+      -webkit-backdrop-filter: blur(28px) saturate(1.4);
+      border-right: 1px solid var(--glass-border);
+      transform: translateX(-102%);
+      transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+      z-index: 51;
+      overflow-y: auto;
+      touch-action: pan-y;
+    }
+    #drawer.open { transform: translateX(0); box-shadow: 24px 0 80px rgba(0,0,0,0.5); }
+
+    .drawerHead {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 6px 8px 18px;
+    }
+    .drawerLogo {
+      width: 40px; height: 40px;
+      border-radius: 12px;
+      display: grid;
+      place-items: center;
+      background: linear-gradient(135deg, var(--accent), #a855f7);
+      box-shadow: 0 6px 20px var(--accent-glow);
+      flex-shrink: 0;
+    }
+    .drawerHeadText { display: flex; flex-direction: column; min-width: 0; }
+    .drawerHeadText strong { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
+    .drawerHeadText span {
+      font-size: 12px;
+      color: var(--text-secondary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .navList { display: flex; flex-direction: column; gap: 4px; }
+    .navItem {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      min-height: 56px;
+      padding: 8px 12px;
+      border: 1px solid transparent;
+      border-radius: 16px;
+      background: transparent;
+      color: var(--text-secondary);
+      font-family: inherit;
+      text-align: left;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      transition: background 0.2s, color 0.2s, border-color 0.2s;
+    }
+    .navItem:hover { background: rgba(255,255,255,0.04); color: var(--text); }
+    .navItem[aria-current="page"] {
+      color: var(--text);
+      background: linear-gradient(135deg, rgba(108,92,231,0.22), rgba(168,85,247,0.08));
+      border-color: rgba(162,155,254,0.25);
+    }
+    .navItem[aria-current="page"] svg { color: var(--accent-light); }
+    .navLabel { display: flex; flex-direction: column; font-size: 14px; font-weight: 600; flex: 1; }
+    .navLabel small { font-size: 11.5px; font-weight: 500; color: var(--text-secondary); margin-top: 1px; }
+    .navBadge {
+      min-width: 22px;
+      height: 22px;
+      padding: 0 7px;
+      border-radius: 999px;
+      background: var(--accent);
+      color: #fff;
+      font-size: 11px;
+      font-weight: 700;
+      display: grid;
+      place-items: center;
+      font-variant-numeric: tabular-nums;
+    }
+    .navBadge[hidden] { display: none; }
+
+    .drawerSection {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-secondary);
+      margin: 22px 12px 8px;
+    }
+    .drawerSection[hidden] { display: none; }
+    #drawerTerms { display: flex; flex-direction: column; gap: 2px; }
+    .drawerTerm {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-height: 44px;
+      padding: 6px 10px;
+      border: none;
+      border-radius: 12px;
+      background: transparent;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 500;
+      text-align: left;
+      cursor: pointer;
+    }
+    .drawerTerm:hover { background: rgba(255,255,255,0.05); }
+    .drawerTerm .avatar { width: 28px; height: 28px; border-radius: 9px; font-size: 12px; }
+    .drawerTerm span.name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    /* ── Terminals ── */
+    #termView { flex-direction: row; background: radial-gradient(120% 80% at 0% 0%, #12101f 0%, #07070b 55%, #000 100%); }
+    .termPane {
+      position: relative;
+      flex: 1;
+      min-width: 0;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    #termView[data-pane="list"] #termThreadPane,
+    #termView[data-pane="thread"] #termListPane { display: none; }
+
+    .termHead {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 22px 16px 10px 20px;
+    }
+    .termHead h2 { font-size: 28px; font-weight: 700; letter-spacing: -0.03em; line-height: 1.1; }
+    .termHead p {
+      font-size: 13px;
+      color: var(--text-secondary);
+      margin-top: 4px;
+      font-variant-numeric: tabular-nums;
+    }
+    .termHeadText { min-width: 0; }
+    #termRefresh.spinning svg { animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .termSearch {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 4px 16px 10px;
+      padding: 0 14px;
+      height: 44px;
+      border-radius: 14px;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid var(--glass-border);
+      color: var(--text-secondary);
+      transition: border-color 0.2s, background 0.2s;
+    }
+    .termSearch:focus-within { border-color: var(--accent); background: rgba(108,92,231,0.06); }
+    .termSearch input {
+      flex: 1;
+      min-width: 0;
+      border: none;
+      background: transparent;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 16px;
+      outline: none;
+    }
+    .termSearch input::placeholder { color: var(--text-secondary); }
+
+    .termItems, #threadScroll {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      overscroll-behavior: contain;
+      touch-action: pan-y;
+    }
+    .termItems { padding: 0 8px calc(16px + env(safe-area-inset-bottom)); }
+    .termItems[hidden] { display: none; }
+
+    .termItem {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      width: 100%;
+      min-height: 76px;
+      padding: 10px 12px;
+      border: none;
+      border-radius: 18px;
+      background: transparent;
+      color: var(--text);
+      font-family: inherit;
+      text-align: left;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      transition: background 0.18s;
+      animation: rise 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+      animation-delay: calc(var(--i, 0) * 28ms);
+    }
+    .termItems.settled .termItem { animation: none; }
+    .termItem:hover { background: rgba(255,255,255,0.04); }
+    .termItem:active { background: rgba(255,255,255,0.07); }
+    .termItem[aria-current="true"] { background: rgba(108,92,231,0.14); }
+    @keyframes rise {
+      from { opacity: 0; transform: translateY(6px); }
+      to   { opacity: 1; transform: none; }
+    }
+
+    .avatar {
+      position: relative;
+      width: 50px;
+      height: 50px;
+      flex-shrink: 0;
+      border-radius: 16px;
+      display: grid;
+      place-items: center;
+      font-size: 19px;
+      font-weight: 700;
+      color: #fff;
+      background:
+        linear-gradient(150deg, hsl(var(--hue, 250) 62% 46%), hsl(calc(var(--hue, 250) + 28) 58% 30%));
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.12);
+      text-transform: uppercase;
+    }
+    .avatar .live {
+      position: absolute;
+      right: -3px; bottom: -3px;
+      width: 15px; height: 15px;
+      border-radius: 50%;
+      background: var(--success);
+      border: 3px solid var(--ink);
+      display: none;
+    }
+    .avatar.working .live { display: block; animation: pulse 1.4s ease-in-out infinite; }
+
+    .avatarStack {
+      position: relative;
+      width: 50px;
+      height: 50px;
+      flex-shrink: 0;
+    }
+    .avatarStack .avatar {
+      position: absolute;
+      width: 34px;
+      height: 34px;
+      border-radius: 11px;
+      font-size: 14px;
+    }
+    .avatarStack .avatar:first-child { top: 0; left: 0; }
+    .avatarStack .avatar:nth-child(2) { right: 0; bottom: 0; box-shadow: 0 0 0 3px var(--ink), inset 0 0 0 1px rgba(255,255,255,0.12); }
+    .avatarStack .avatar .live { display: none; }
+    .stackCount {
+      position: absolute;
+      left: -4px; bottom: -4px;
+      min-width: 20px;
+      height: 20px;
+      padding: 0 5px;
+      border-radius: 999px;
+      display: grid;
+      place-items: center;
+      background: var(--text);
+      color: var(--ink);
+      font-size: 11px;
+      font-weight: 700;
+      box-shadow: 0 0 0 3px var(--ink);
+      font-variant-numeric: tabular-nums;
+    }
+    .avatarStack.working .stackCount { background: var(--success); }
+    .previewFrom { font-family: 'Inter', sans-serif; font-weight: 600; color: var(--accent-light); }
+    .avatarSlot { display: inline-flex; flex-shrink: 0; }
+    .threadHead .avatarStack { width: 40px; height: 40px; }
+    .threadHead .avatarStack .avatar { width: 28px; height: 28px; border-radius: 9px; font-size: 12px; }
+    .threadHead .stackCount { min-width: 17px; height: 17px; font-size: 10px; }
+    .drawerTerm .avatarStack { width: 28px; height: 28px; }
+    .drawerTerm .avatarStack .avatar { width: 20px; height: 20px; border-radius: 6px; font-size: 9px; }
+    .drawerTerm .stackCount { display: none; }
+
+    .toChip .avatar {
+      width: 20px;
+      height: 20px;
+      border-radius: 6px;
+      font-size: 10px;
+    }
+    .toChip .avatar .live { display: none; }
+
+    .memberTabs {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 10px;
+      overflow-x: auto;
+      scrollbar-width: none;
+      touch-action: pan-x;
+      background: rgba(10,10,16,0.7);
+      border-bottom: 1px solid var(--glass-border);
+      flex-shrink: 0;
+    }
+    .memberTabs::-webkit-scrollbar { display: none; }
+    .memberTabs[hidden] { display: none; }
+    .toChip {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+      min-height: 36px;
+      max-width: 200px;
+      padding: 0 12px 0 6px;
+      border-radius: 999px;
+      border: 1px solid var(--glass-border-hover);
+      background: rgba(255,255,255,0.04);
+      color: var(--text-secondary);
+      font-family: inherit;
+      font-size: 12.5px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s, color 0.2s, border-color 0.2s;
+    }
+    .toChip .chipName { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .toChip .unreadDot { position: absolute; top: 2px; right: 2px; width: 8px; height: 8px; }
+    .toChip.unread .unreadDot { display: block; }
+    .toChip .typing { margin-left: 2px; }
+    .toChip[aria-selected="true"] {
+      color: #fff;
+      border-color: var(--accent);
+      background: rgba(108,92,231,0.28);
+    }
+
+    .termMain { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+    .termRow { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .termTitle {
+      flex: 1;
+      min-width: 0;
+      font-size: 15.5px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .termTime {
+      font-size: 11.5px;
+      color: var(--text-secondary);
+      flex-shrink: 0;
+      font-variant-numeric: tabular-nums;
+    }
+    .termItem.unread .termTime { color: var(--accent-light); font-weight: 600; }
+    .termPreview {
+      flex: 1;
+      min-width: 0;
+      font-family: var(--mono);
+      font-size: 12.5px;
+      color: rgba(240,240,245,0.62);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .termItem.unread .termPreview { color: var(--text); }
+    .unreadDot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      background: var(--accent-light);
+      box-shadow: 0 0 10px var(--accent-glow);
+      flex-shrink: 0;
+      display: none;
+    }
+    .termItem.unread .unreadDot { display: block; }
+    .termTags { display: flex; gap: 6px; min-width: 0; font-size: 11px; color: var(--text-secondary); }
+    .tag {
+      flex-shrink: 0;
+      padding: 1px 7px;
+      border-radius: 6px;
+      background: rgba(255,255,255,0.06);
+      font-family: var(--mono);
+      font-size: 10.5px;
+      color: rgba(240,240,245,0.7);
+    }
+    .tagPlain { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-top: 1px; }
+
+    .typing { display: inline-flex; gap: 3px; align-items: center; height: 12px; }
+    .typing i {
+      width: 5px; height: 5px;
+      border-radius: 50%;
+      background: var(--success);
+      animation: typing 1.2s ease-in-out infinite;
+    }
+    .typing i:nth-child(2) { animation-delay: 0.15s; }
+    .typing i:nth-child(3) { animation-delay: 0.3s; }
+    @keyframes typing {
+      0%, 60%, 100% { opacity: 0.25; transform: translateY(0); }
+      30%           { opacity: 1;    transform: translateY(-3px); }
+    }
+
+    .skeleton {
+      height: 76px;
+      margin: 0 4px;
+      border-radius: 18px;
+      background: linear-gradient(90deg, rgba(255,255,255,0.03), rgba(255,255,255,0.07), rgba(255,255,255,0.03));
+      background-size: 200% 100%;
+      animation: shimmer 1.4s linear infinite;
+      margin-bottom: 6px;
+    }
+    @keyframes shimmer { to { background-position: -200% 0; } }
+
+    .termState {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      padding: 32px 28px;
+      text-align: center;
+    }
+    .termState[hidden] { display: none; }
+    .termState h3 { font-size: 17px; font-weight: 700; letter-spacing: -0.01em; }
+    .termState p { font-size: 14px; line-height: 1.55; color: rgba(240,240,245,0.6); max-width: 330px; }
+    .termState ol {
+      text-align: left;
+      font-size: 13.5px;
+      line-height: 1.6;
+      color: rgba(240,240,245,0.72);
+      max-width: 330px;
+      padding-left: 20px;
+    }
+    .stateIcon {
+      width: 64px; height: 64px;
+      border-radius: 20px;
+      display: grid;
+      place-items: center;
+      background: var(--surface-elevated);
+      border: 1px solid var(--glass-border);
+      color: var(--accent-light);
+      margin-bottom: 6px;
+    }
+    .stateBtn {
+      margin-top: 8px;
+      min-height: 44px;
+      padding: 0 22px;
+      border: none;
+      border-radius: 14px;
+      background: linear-gradient(135deg, var(--accent), #8B5CF6);
+      color: #fff;
+      font-family: inherit;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      box-shadow: 0 4px 20px var(--accent-glow);
+    }
+
+    /* ── Thread ── */
+    .threadHead {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 8px 8px 4px;
+      border-bottom: 1px solid var(--glass-border);
+      background: rgba(10,10,16,0.7);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      flex-shrink: 0;
+    }
+    .threadHead[hidden] { display: none; }
+    .threadHead .avatar { width: 38px; height: 38px; border-radius: 12px; font-size: 15px; }
+    .threadMeta { flex: 1; min-width: 0; }
+    #threadTitle {
+      font-size: 15px;
+      font-weight: 650;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    #threadSub {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--text-secondary);
+      white-space: nowrap;
+      overflow: hidden;
+    }
+    #threadSub .typing i { width: 4px; height: 4px; }
+
+    .threadNotice {
+      margin: 10px 12px 0;
+      padding: 10px 14px;
+      border-radius: 12px;
+      font-size: 13px;
+      line-height: 1.45;
+      background: rgba(255,212,59,0.08);
+      border: 1px solid rgba(255,212,59,0.22);
+      color: #FFE699;
+    }
+    .threadNotice[hidden] { display: none; }
+    #threadScroll[hidden] { display: none; }
+    /* Sideways swipes must reach the long-line bubbles inside; with pan-y alone
+       iOS hands them to its back gesture instead. */
+    #threadScroll { touch-action: pan-x pan-y; overflow-x: hidden; }
+    #threadBody {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding: 16px 12px 20px;
+    }
+
+    .bubble {
+      max-width: min(100%, 860px);
+      border-radius: 18px;
+    }
+    .bubble pre {
+      margin: 0;
+      font-family: var(--mono);
+      font-size: 12.5px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      -webkit-user-select: text;
+      user-select: text;
+      tab-size: 8;
+    }
+    #termView.nowrap .bubble.in pre {
+      white-space: pre;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      overscroll-behavior-x: contain;
+      touch-action: pan-x pan-y;
+      padding-bottom: 6px;
+    }
+    .bubble.in {
+      align-self: flex-start;
+      width: 100%;
+      padding: 12px 14px;
+      background: rgba(22, 22, 32, 0.88);
+      border: 1px solid var(--glass-border);
+      border-top-left-radius: 6px;
+      color: #E4E4EE;
+    }
+    /* Approximate terminal colours: Terminal hands out plain text only. */
+    .bubble.in pre .t-prompt { color: var(--accent-light); }
+    .bubble.in pre .t-cmd { color: #fff; font-weight: 700; }
+    .bubble.in pre .t-add { color: #7EE2A8; }
+    .bubble.in pre .t-del { color: #FF8A8A; }
+    .bubble.in pre .t-hunk { color: #7DD3FC; }
+    .bubble.in pre .t-err { color: #FF8A8A; font-weight: 600; }
+    .bubble.in pre .t-warn { color: #FFD97A; }
+    .bubble.in pre .t-ok { color: #7EE2A8; }
+    .bubble.in pre .t-dim { color: rgba(228,228,238,0.42); }
+    .bubble.in pre .t-mark { color: #B6A8FF; }
+    .bubble.in pre a.t-link { color: #7DD3FC; text-decoration: underline; text-underline-offset: 2px; }
+
+    .bubble.out {
+      align-self: flex-end;
+      max-width: 82%;
+      padding: 10px 14px 6px;
+      background: linear-gradient(135deg, var(--accent), #8B5CF6);
+      border-bottom-right-radius: 6px;
+      color: #fff;
+      box-shadow: 0 6px 24px rgba(108,92,231,0.25);
+    }
+    .bubble.out pre { font-weight: 500; }
+    .bubble.out.signal { background: rgba(255,107,107,0.16); border: 1px solid rgba(255,107,107,0.35); box-shadow: none; color: #FFC9C9; }
+    .bubble.out.failed { background: rgba(255,107,107,0.12); border: 1px solid rgba(255,107,107,0.4); box-shadow: none; cursor: pointer; }
+    .bubbleMeta {
+      display: flex;
+      justify-content: flex-end;
+      align-items: center;
+      gap: 5px;
+      margin-top: 3px;
+      font-size: 10.5px;
+      font-weight: 500;
+      color: rgba(255,255,255,0.72);
+      font-variant-numeric: tabular-nums;
+    }
+    .bubble.failed .bubbleMeta { color: var(--danger); }
+    .threadDivider {
+      align-self: center;
+      padding: 4px 12px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.05);
+      font-size: 11.5px;
+      font-weight: 500;
+      color: var(--text-secondary);
+    }
+
+    #threadJump {
+      position: absolute;
+      left: 50%;
+      bottom: 86px;
+      transform: translateX(-50%);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 36px;
+      padding: 0 14px;
+      border-radius: 999px;
+      border: 1px solid var(--glass-border-hover);
+      background: rgba(32, 32, 44, 0.92);
+      color: var(--text);
+      font-family: inherit;
+      font-size: 12.5px;
+      font-weight: 600;
+      cursor: pointer;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+      z-index: 3;
+    }
+    #threadJump[hidden] { display: none; }
+
+    #composer {
+      display: flex;
+      align-items: flex-end;
+      gap: 8px;
+      padding: 10px 10px calc(10px + env(safe-area-inset-bottom));
+      border-top: 1px solid var(--glass-border);
+      background: var(--surface);
+      backdrop-filter: blur(24px) saturate(1.4);
+      -webkit-backdrop-filter: blur(24px) saturate(1.4);
+      flex-shrink: 0;
+    }
+    #composer[hidden] { display: none; }
+    #composerInput {
+      flex: 1;
+      min-width: 0;
+      min-height: 44px;
+      max-height: 140px;
+      padding: 11px 14px;
+      resize: none;
+      border-radius: 22px;
+      border: 1px solid var(--glass-border-hover);
+      background: rgba(255,255,255,0.05);
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 16px;
+      line-height: 1.35;
+      outline: none;
+      transition: border-color 0.2s, background 0.2s;
+    }
+    #composerInput:focus { border-color: var(--accent); background: rgba(108,92,231,0.07); }
+    #composerInput::placeholder { color: var(--text-secondary); font-family: 'Inter', sans-serif; }
+    #composerInput:disabled { opacity: 0.5; }
+    .composerKey, #composerSend {
+      width: 44px;
+      height: 44px;
+      flex-shrink: 0;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      border: 1px solid var(--glass-border-hover);
+      background: var(--surface-elevated);
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 12.5px;
+      font-weight: 700;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      transition: background 0.2s, opacity 0.2s, transform 0.15s;
+    }
+    .composerKey { color: #FFB3B3; }
+    .composerKey.composerPaste { color: var(--text); }
+    .bubbleTools {
+      display: flex;
+      justify-content: flex-end;
+      margin: 6px -6px -6px 0;
+    }
+    .copyBtn {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      min-height: 32px;
+      padding: 0 10px;
+      border: none;
+      border-radius: 10px;
+      background: transparent;
+      color: var(--text-secondary);
+      font-family: inherit;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      transition: background 0.2s, color 0.2s;
+    }
+    .copyBtn:hover, .copyBtn:active { background: rgba(255,255,255,0.08); color: var(--text); }
+    .copyBtn.done { color: var(--success); }
+    .composerKey:active, #composerSend:active { transform: scale(0.94); }
+    #composerSend {
+      border: none;
+      background: linear-gradient(135deg, var(--accent), #8B5CF6);
+      color: #fff;
+      box-shadow: 0 4px 16px var(--accent-glow);
+    }
+    #composerSend:disabled, .composerKey:disabled { opacity: 0.35; box-shadow: none; cursor: default; }
+
+    /* Tablets and up: list and conversation side by side. */
+    @media (min-width: 760px) {
+      #termView[data-pane] #termListPane,
+      #termView[data-pane] #termThreadPane { display: flex; }
+      #termListPane { flex: 0 0 340px; border-right: 1px solid var(--glass-border); }
+      #threadBack { display: none; }
+      .threadHead { padding-left: 14px; }
+    }
+
+    /* Wide screens: the menu becomes a permanent sidebar. */
+    @media (min-width: 1100px) {
+      #drawer { transform: none; box-shadow: none; z-index: 12; }
+      #drawerScrim, #btnMenu { display: none; }
+      #app { margin-left: var(--drawer-w); }
+      #drawer { width: var(--drawer-w); }
+    }
+
     /* ── Reduced motion ── */
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after {
@@ -610,6 +1382,10 @@
 <body>
 <div id="app">
   <div id="statusBar">
+    <button class="iconBtn" id="btnMenu" aria-label="Open menu" aria-controls="drawer" aria-expanded="false">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h10"/></svg>
+      <span class="menuPip" id="menuPip"></span>
+    </button>
     <div id="dot"></div>
     <span id="statusText">Not connected</span>
     <button class="chip" id="btnQuality" aria-label="Stream quality">
@@ -620,6 +1396,7 @@
     </button>
   </div>
 
+  <div id="screenView" class="view">
   <div id="videoWrap">
     <video id="screen" autoplay playsinline muted></video>
     <div id="cursor">
@@ -659,7 +1436,6 @@
     </div>
 
     <div id="hud"></div>
-    <div id="kbHint">Keyboard active</div>
   </div>
 
   <!-- Accessory key bar (arrows, Esc, Tab, modifiers) — shown when mobile keyboard is open -->
@@ -749,7 +1525,98 @@
       <span>Exit</span>
     </button>
   </div>
+  </div>
+
+  <section id="termView" class="view" data-pane="list" hidden aria-label="Terminals">
+    <div id="termListPane" class="termPane">
+      <header class="termHead">
+        <div class="termHeadText">
+          <h2>Terminals</h2>
+          <p id="termSummary">Every open Terminal tab on your Mac</p>
+        </div>
+        <button class="iconBtn" id="termRefresh" aria-label="Refresh terminals">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>
+        </button>
+      </header>
+      <label class="termSearch">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+        <input id="termFilter" type="search" placeholder="Search terminals" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" aria-label="Search terminals" />
+      </label>
+      <div id="termItems" class="termItems" role="list"></div>
+      <div id="termState" class="termState" hidden></div>
+    </div>
+
+    <div id="termThreadPane" class="termPane">
+      <div id="threadEmpty" class="termState threadEmpty">
+        <div class="stateIcon">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M7 9l3 3-3 3M12.5 15H17"/></svg>
+        </div>
+        <h3>Pick a terminal</h3>
+        <p>Its output shows up here as a conversation, and anything you send is typed straight into that tab on the Mac.</p>
+      </div>
+      <header class="threadHead" id="threadHead" hidden>
+        <button class="iconBtn" id="threadBack" aria-label="Back to terminals">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+        </button>
+        <span class="avatarSlot" id="threadAvatar"></span>
+        <div class="threadMeta">
+          <div id="threadTitle"></div>
+          <div id="threadSub"></div>
+        </div>
+        <button class="iconBtn" id="threadWrap" aria-label="Wrap long lines" aria-pressed="true">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h13a3 3 0 0 1 0 6h-4"/><path d="M15 16l-2 2 2 2M4 18h5"/></svg>
+        </button>
+      </header>
+      <div id="memberTabs" class="memberTabs" role="tablist" aria-label="Tabs in this window" hidden></div>
+      <div id="threadNotice" class="threadNotice" hidden></div>
+      <div id="threadScroll" hidden>
+        <div id="threadBody" aria-live="polite"></div>
+      </div>
+      <button id="threadJump" hidden aria-label="Jump to latest output">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M6 13l6 6 6-6"/></svg>
+        Latest
+      </button>
+      <form id="composer" hidden>
+        <button type="button" class="composerKey" id="composerInterrupt" aria-label="Send Control-C to interrupt">⌃C</button>
+        <button type="button" class="composerKey composerPaste" id="composerPaste" aria-label="Paste from clipboard">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="3" width="8" height="4" rx="1"/><path d="M16 5h2a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2"/></svg>
+        </button>
+        <textarea id="composerInput" rows="1" placeholder="Send a command" enterkeyhint="send" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" aria-label="Command to send"></textarea>
+        <button type="submit" id="composerSend" aria-label="Send command" disabled>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+        </button>
+      </form>
+    </div>
+  </section>
 </div>
+
+<div id="kbHint" role="status">Keyboard active</div>
+
+<div id="drawerScrim"></div>
+<nav id="drawer" aria-label="Main">
+  <div class="drawerHead">
+    <div class="drawerLogo">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+    </div>
+    <div class="drawerHeadText">
+      <strong>Mac Remote</strong>
+      <span id="drawerHost">Not connected</span>
+    </div>
+  </div>
+  <div class="navList">
+    <button class="navItem" data-route="screen">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+      <span class="navLabel">Screen<small>Live view and control</small></span>
+    </button>
+    <button class="navItem" data-route="terminals">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M7 9l3 3-3 3M12.5 15H17"/></svg>
+      <span class="navLabel">Terminals<small>Chat with open tabs</small></span>
+      <span class="navBadge" id="navTermBadge" hidden></span>
+    </button>
+  </div>
+  <div class="drawerSection" id="drawerTermsTitle" hidden>Recent terminals</div>
+  <div id="drawerTerms"></div>
+</nav>
 
 <div id="sheetScrim"></div>
 <div id="sheet">
@@ -782,6 +1649,10 @@ const state = {
   pc: null,
   dc: null,
   connected: false,
+  // The signaling socket has passed auth, which is all the terminals need.
+  authed: false,
+  // 'screen' or 'terminals'.
+  view: 'screen',
   scrollMode: false,
   nextRightClick: false,
   // 'touch'   — the picture behaves like a touchscreen: you act where you tap.
@@ -1111,6 +1982,7 @@ if (selfHost) {
 function setStatus(label, cls) {
   statusText.textContent = label;
   dot.className = cls || '';
+  $('drawerHost').textContent = state.host && state.wantConnected ? `${state.host} · ${label}` : label;
 }
 
 function showError(msg) {
@@ -1417,6 +2289,8 @@ async function connect(host, password, isRetry) {
         if (msg.payload?.iceServers) {
           serverICE = msg.payload.iceServers;
         }
+        state.authed = true;
+        onTermAuthed();
         setStatus('Handshaking\u2026', 'connecting');
         // Record the preset before asking for a stream, so the first session is
         // already built with it rather than restarted a moment later.
@@ -1455,6 +2329,18 @@ async function connect(host, password, isRetry) {
           try { await state.pc.addIceCandidate(msg.payload); } catch {}
         }
         break;
+      case 'term_list':
+        onTermList(msg.payload);
+        break;
+      case 'term_output':
+        onTermOutput(msg.payload);
+        break;
+      case 'term_ack':
+        onTermAck(msg.payload);
+        break;
+      case 'term_error':
+        onTermError(msg.payload);
+        break;
       case 'error':
         showError(msg.payload?.message || 'Server error');
         setStatus('Error', 'error');
@@ -1470,6 +2356,8 @@ async function connect(host, password, isRetry) {
   ws.onclose = () => {
     if (state.ws === ws) state.ws = null;
     state.connected = false;
+    state.authed = false;
+    onTermDisconnected();
     stopStallWatch();
     connectBtn.disabled = false;
     overlay.style.display = 'flex';
@@ -1586,6 +2474,8 @@ function teardownPeer() {
     state.ws.close();
     state.ws = null;
   }
+  state.authed = false;
+  onTermDisconnected();
   state.dc = null;
   state.connected = false;
   screenEl.srcObject = null;
@@ -2014,7 +2904,7 @@ const KEY_MAP = {
 };
 
 document.addEventListener('keydown', e => {
-  if (!state.connected) return;
+  if (!state.connected || state.view !== 'screen') return;
   if (e.target === hostInput || e.target === passwordInput || e.target === connectBtn) return;
   const mods = [];
   if (e.metaKey) mods.push('cmd');
@@ -2220,10 +3110,13 @@ if (window.visualViewport) {
   window.visualViewport.addEventListener('resize', () => {
     const vv = window.visualViewport;
     const kbHeight = initialHeight - vv.height;
-    if (kbHeight > 100 && document.activeElement === kbCapture) {
+    const typing = document.activeElement === kbCapture || document.activeElement === composerInput;
+    if (kbHeight > 100 && typing) {
       app.classList.add('kb-open');
       // Shrink the entire page to fit above the keyboard
       document.documentElement.style.height = vv.height + 'px';
+      // iOS scrolls the page to reveal a focused field even with overflow hidden.
+      window.scrollTo(0, 0);
     } else {
       app.classList.remove('kb-open');
       document.documentElement.style.height = '';
@@ -2451,6 +3344,1228 @@ function scheduleRefit() {
 window.addEventListener('resize', scheduleRefit);
 window.addEventListener('orientationchange', scheduleRefit);
 window.screen?.orientation?.addEventListener?.('change', scheduleRefit);
+
+
+// ── Navigation ───────────────────────────────────────────────────────────────
+// Routes live in the hash so the phone's back gesture walks thread → list →
+// screen the way it would in any messaging app.
+const drawer = $('drawer');
+const drawerScrim = $('drawerScrim');
+const btnMenu = $('btnMenu');
+const screenView = $('screenView');
+const termView = $('termView');
+
+function parseRoute(hash) {
+  const h = (hash || '').replace(/^#/, '');
+  if (h.startsWith('terminals/')) return { view: 'terminals', id: decodeURIComponent(h.slice(10)) };
+  if (h === 'terminals') return { view: 'terminals', id: null };
+  return { view: 'screen', id: null };
+}
+
+function routeHash(route) {
+  if (route.view !== 'terminals') return '#';
+  return route.id ? `#terminals/${encodeURIComponent(route.id)}` : '#terminals';
+}
+
+function navigate(route, replace) {
+  const hash = routeHash(route);
+  const st = { fromApp: true };
+  if (replace) history.replaceState(st, '', hash === '#' ? location.pathname + location.search : hash);
+  else history.pushState(st, '', hash === '#' ? location.pathname + location.search : hash);
+  applyRoute(route);
+}
+
+function applyRoute(route) {
+  closeDrawer();
+  const wasScreen = state.view === 'screen';
+  state.view = route.view;
+  screenView.hidden = route.view !== 'screen';
+  termView.hidden = route.view !== 'terminals';
+  btnQuality.style.display = route.view === 'screen' ? '' : 'none';
+  for (const item of document.querySelectorAll('.navItem')) {
+    if (item.dataset.route === route.view) item.setAttribute('aria-current', 'page');
+    else item.removeAttribute('aria-current');
+  }
+
+  if (route.view === 'screen') {
+    closeThread();
+    if (!wasScreen) {
+      // The video sat at zero size while hidden and Safari may have paused it.
+      screenEl.play().catch(() => {});
+      scheduleRefit();
+      updateCursorDisplay();
+    }
+  } else {
+    if (wasScreen) { hideKb(); closeSheet(); }
+    if (route.id) openThread(route.id); else closeThread();
+    requestTermList();
+  }
+  syncTermPolling();
+}
+
+window.addEventListener('popstate', () => applyRoute(parseRoute(location.hash)));
+
+function openDrawer() {
+  drawer.classList.add('open');
+  drawerScrim.classList.add('open');
+  btnMenu.setAttribute('aria-expanded', 'true');
+  requestTermList();
+  syncTermPolling();
+}
+
+function closeDrawer() {
+  if (!drawer.classList.contains('open')) return;
+  drawer.classList.remove('open');
+  drawerScrim.classList.remove('open');
+  btnMenu.setAttribute('aria-expanded', 'false');
+  syncTermPolling();
+}
+
+btnMenu.addEventListener('click', () => drawer.classList.contains('open') ? closeDrawer() : openDrawer());
+drawerScrim.addEventListener('click', closeDrawer);
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer(); });
+for (const item of document.querySelectorAll('.navItem')) {
+  item.addEventListener('click', () => {
+    const view = item.dataset.route;
+    if (view === state.view && !term.openKey) { closeDrawer(); return; }
+    navigate({ view, id: null });
+  });
+}
+
+// ── Terminals ────────────────────────────────────────────────────────────────
+// Every Terminal/iTerm tab on the Mac, presented as a conversation: output comes
+// in as the Mac's messages, commands go out as yours and are typed into the tab.
+// A window holding several tabs is one group conversation with a member per tab.
+const threadBack = $('threadBack');
+const termItems = $('termItems');
+const termState = $('termState');
+const termSummary = $('termSummary');
+const termFilter = $('termFilter');
+const termRefresh = $('termRefresh');
+const threadEmpty = $('threadEmpty');
+const threadHead = $('threadHead');
+const threadAvatar = $('threadAvatar');
+const threadTitle = $('threadTitle');
+const threadSub = $('threadSub');
+const threadWrap = $('threadWrap');
+const threadNotice = $('threadNotice');
+const threadScroll = $('threadScroll');
+const threadBody = $('threadBody');
+const threadJump = $('threadJump');
+const composer = $('composer');
+const memberTabs = $('memberTabs');
+const composerInput = $('composerInput');
+const composerSend = $('composerSend');
+const composerInterrupt = $('composerInterrupt');
+const composerPaste = $('composerPaste');
+const navTermBadge = $('navTermBadge');
+const menuPip = $('menuPip');
+const drawerTerms = $('drawerTerms');
+const drawerTermsTitle = $('drawerTermsTitle');
+
+const TERM_WRAP_KEY = 'macagent_term_wrap';
+const TERM_LIST_MS = 4000;
+// Each tab's mirror keeps this much output; older lines fall off the top.
+const THREAD_MAX_LINES = 3000;
+const THREAD_MAX_ITEMS = 500;
+const NEAR_BOTTOM_PX = 80;
+const GROUP_PREFIX = 'group:';
+
+const term = {
+  list: [],
+  loaded: false,
+  error: null,
+  errorMessage: '',
+  listPending: false,
+  listTimer: null,
+  listDeadline: null,
+  order: new Map(),     // tab id → first-seen position, so the list does not shuffle
+  lastActive: new Map(),
+  unread: new Set(),
+  recipients: new Map(), // group key → the tab its composer last addressed
+  openKey: null,
+  thread: null,
+  wrap: localStorage.getItem(TERM_WRAP_KEY) !== '0',
+  history: [],
+  historyAt: -1,
+  renderQueued: false,
+  renderHeld: false,
+  touching: false,
+  touchTimer: null,
+  stuck: true,
+};
+
+function hueOf(text) {
+  let h = 0;
+  for (const ch of text) h = (h * 31 + ch.codePointAt(0)) >>> 0;
+  return h % 360;
+}
+
+function ttyName(id) {
+  return id.replace('/dev/', '');
+}
+
+function tabName(info) {
+  return info.title || ttyName(info.id);
+}
+
+function memberInfo(id) {
+  return term.list.find(i => i.id === id) || { id, title: ttyName(id), directory: '' };
+}
+
+function avatarEl(info, label) {
+  const el = document.createElement('span');
+  el.className = 'avatar';
+  const source = label || info.directory || info.title || '?';
+  const m = source.match(/[\p{L}\p{N}]/u);
+  el.textContent = m ? m[0] : '?';
+  el.style.setProperty('--hue', hueOf(info.directory || info.title || ''));
+  const live = document.createElement('span');
+  live.className = 'live';
+  el.appendChild(live);
+  el.classList.toggle('working', !!info.active);
+  return el;
+}
+
+// Tabs in one window share a project directory and so a colour; the monogram
+// comes from each tab's own title so the members stay tell-apart-able.
+function memberAvatar(info) {
+  return avatarEl(info, (info.title || '').replace(/^[^\p{L}\p{N}]+/u, '') || info.directory);
+}
+
+function convAvatar(c) {
+  if (!c.group) return avatarEl(c.members[0]);
+  const stack = document.createElement('span');
+  stack.className = 'avatarStack';
+  stack.classList.toggle('working', c.members.some(m => m.active));
+  for (const m of c.members.slice(0, 2)) stack.appendChild(memberAvatar(m));
+  const count = document.createElement('span');
+  count.className = 'stackCount';
+  count.textContent = c.members.length;
+  stack.appendChild(count);
+  return stack;
+}
+
+function ago(ts) {
+  if (!ts) return '';
+  const s = Math.round((Date.now() - ts) / 1000);
+  if (s < 45) return 'now';
+  if (s < 3600) return `${Math.round(s / 60)}m`;
+  if (s < 86400) return `${Math.round(s / 3600)}h`;
+  return `${Math.round(s / 86400)}d`;
+}
+
+function typingDots() {
+  const t = document.createElement('span');
+  t.className = 'typing';
+  t.setAttribute('aria-label', 'output changing');
+  t.innerHTML = '<i></i><i></i><i></i>';
+  return t;
+}
+
+// ── Conversations: one per window ────────────────────────────────────────────
+function conversations() {
+  const byWindow = new Map();
+  for (const info of term.list) {
+    const w = info.window || info.id;
+    if (!byWindow.has(w)) byWindow.set(w, []);
+    byWindow.get(w).push(info);
+  }
+  const convs = [];
+  for (const [w, members] of byWindow) {
+    members.sort((a, b) => a.tab - b.tab);
+    convs.push(members.length > 1
+      ? { key: GROUP_PREFIX + w, group: true, members }
+      : { key: members[0].id, group: false, members });
+  }
+  return convs.sort((a, b) => convActive(b) - convActive(a) || convOrder(a) - convOrder(b));
+}
+
+function convActive(c) {
+  return Math.max(0, ...c.members.map(m => term.lastActive.get(m.id) || 0));
+}
+
+function convOrder(c) {
+  return Math.min(...c.members.map(m => term.order.get(m.id) ?? 1e9));
+}
+
+function convTitle(c) {
+  if (!c.group) return tabName(c.members[0]);
+  const dirs = [...new Set(c.members.map(m => m.directory).filter(Boolean))];
+  return dirs.length ? dirs.join(' + ') : 'Terminal window';
+}
+
+function convUnread(c) {
+  return c.members.some(m => term.unread.has(m.id));
+}
+
+function latestMember(c) {
+  return [...c.members].sort((a, b) => (term.lastActive.get(b.id) || 0) - (term.lastActive.get(a.id) || 0))[0];
+}
+
+// findConv resolves a route key. A group whose window is down to one tab is still
+// that group, and a single tab stays its own chat after its window gains a tab.
+function findConv(key) {
+  if (key.startsWith(GROUP_PREFIX)) {
+    const w = key.slice(GROUP_PREFIX.length);
+    const members = term.list.filter(i => i.window === w).sort((a, b) => a.tab - b.tab);
+    return members.length ? { key, group: true, members } : null;
+  }
+  const info = term.list.find(i => i.id === key);
+  return info ? { key, group: false, members: [info] } : null;
+}
+
+// ── Listing ──────────────────────────────────────────────────────────────────
+function requestTermList() {
+  if (!state.authed || term.listPending) return;
+  term.listPending = true;
+  termRefresh.classList.add('spinning');
+  wsSend('term_list');
+  // An agent from before this feature never answers.
+  clearTimeout(term.listDeadline);
+  term.listDeadline = setTimeout(() => {
+    if (!term.listPending) return;
+    onTermList({ error: 'failed', message: 'The Mac did not answer. Update and restart the agent, then try again.' });
+  }, 15000);
+}
+
+function termListVisible() {
+  if (document.visibilityState !== 'visible') return false;
+  if (drawer.classList.contains('open') || window.matchMedia('(min-width: 1100px)').matches) return true;
+  return state.view === 'terminals';
+}
+
+function syncTermPolling() {
+  const want = state.authed && termListVisible();
+  if (want && !term.listTimer) {
+    term.listTimer = setInterval(requestTermList, TERM_LIST_MS);
+  } else if (!want && term.listTimer) {
+    clearInterval(term.listTimer);
+    term.listTimer = null;
+  }
+}
+document.addEventListener('visibilitychange', syncTermPolling);
+
+function onTermAuthed() {
+  term.listPending = false;
+  // A group's members are only known from a listing, so ask even when hidden.
+  if (term.thread) { watchThread(); requestTermList(); }
+  else if (termListVisible()) requestTermList();
+  renderTermList();
+  syncThreadControls();
+  syncTermPolling();
+}
+
+function onTermDisconnected() {
+  term.listPending = false;
+  clearTimeout(term.listDeadline);
+  termRefresh.classList.remove('spinning');
+  syncTermPolling();
+  renderTermList();
+  syncThreadControls();
+}
+
+function onTermList(p) {
+  term.listPending = false;
+  clearTimeout(term.listDeadline);
+  termRefresh.classList.remove('spinning');
+  term.error = p?.error || null;
+  term.errorMessage = p?.message || '';
+  if (term.error) { renderTermList(); return; }
+
+  const now = Date.now();
+  const watching = new Set(term.thread?.members || []);
+  term.list = p?.terminals || [];
+  for (const info of term.list) {
+    if (!term.order.has(info.id)) term.order.set(info.id, term.order.size);
+    if (info.active) {
+      term.lastActive.set(info.id, now);
+      if (!watching.has(info.id)) term.unread.add(info.id);
+    }
+  }
+  const open = new Set(term.list.map(i => i.id));
+  for (const id of term.unread) if (!open.has(id)) term.unread.delete(id);
+  term.loaded = true;
+  renderTermList();
+  if (term.thread) resolveMembers();
+}
+
+function showTermState(icon, title, body, action) {
+  termItems.hidden = true;
+  termState.hidden = false;
+  termState.innerHTML = '';
+  const i = document.createElement('div');
+  i.className = 'stateIcon';
+  i.innerHTML = icon;
+  const h = document.createElement('h3');
+  h.textContent = title;
+  termState.append(i, h);
+  if (typeof body === 'string') {
+    const para = document.createElement('p');
+    para.textContent = body;
+    termState.appendChild(para);
+  } else if (body) {
+    termState.appendChild(body);
+  }
+  if (action) {
+    const b = document.createElement('button');
+    b.className = 'stateBtn';
+    b.textContent = action.label;
+    b.addEventListener('click', action.run);
+    termState.appendChild(b);
+  }
+}
+
+const ICON_TERMINAL = '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M7 9l3 3-3 3M12.5 15H17"/></svg>';
+const ICON_PLUG = '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2v6M15 2v6M6 8h12v4a6 6 0 0 1-12 0zM12 18v4"/></svg>';
+const ICON_LOCK = '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>';
+
+function automationSteps() {
+  const ol = document.createElement('ol');
+  for (const step of [
+    'On the Mac, open System Settings → Privacy & Security → Automation.',
+    'Under mac-agent, switch on Terminal (and iTerm if you use it).',
+    'Restart the Mac Remote service, then tap Try again.',
+  ]) {
+    const li = document.createElement('li');
+    li.textContent = step;
+    ol.appendChild(li);
+  }
+  return ol;
+}
+
+function renderTermList() {
+  const convs = conversations();
+  const working = term.list.filter(i => i.active).length;
+  termSummary.textContent = !state.authed ? 'Not connected'
+    : !term.loaded ? 'Looking for terminals…'
+    : `${term.list.length} open${working ? ` · ${working} working` : ''}`;
+
+  const unread = convs.filter(convUnread).length;
+  navTermBadge.hidden = unread === 0;
+  navTermBadge.textContent = unread;
+  menuPip.classList.toggle('show', unread > 0 && state.view !== 'terminals');
+  renderDrawerTerms(convs);
+
+  termItems.innerHTML = '';
+  termItems.hidden = false;
+  termState.hidden = true;
+
+  if (!state.authed) {
+    showTermState(ICON_PLUG, 'Not connected', 'Connect to your Mac to see its open terminals.',
+      { label: 'Go to connect', run: () => navigate({ view: 'screen', id: null }) });
+    return;
+  }
+  if (term.error === 'not_authorized') {
+    showTermState(ICON_LOCK, 'Allow terminal access', automationSteps(),
+      { label: 'Try again', run: () => { term.error = null; requestTermList(); renderTermList(); } });
+    return;
+  }
+  if (term.error) {
+    showTermState(ICON_TERMINAL, 'Could not read the terminals', term.errorMessage || 'The Mac did not answer.',
+      { label: 'Try again', run: requestTermList });
+    return;
+  }
+  if (!term.loaded) {
+    for (let i = 0; i < 4; i++) {
+      const sk = document.createElement('div');
+      sk.className = 'skeleton';
+      termItems.appendChild(sk);
+    }
+    return;
+  }
+  if (term.list.length === 0) {
+    showTermState(ICON_TERMINAL, 'No terminals open', 'Open a Terminal window on the Mac and it will show up here.');
+    return;
+  }
+
+  const q = termFilter.value.trim().toLowerCase();
+  const items = convs.filter(c => !q || [convTitle(c), ...c.members.flatMap(i =>
+    [i.title, i.directory, i.process, i.preview, ttyName(i.id)])].some(v => (v || '').toLowerCase().includes(q)));
+  if (items.length === 0) {
+    showTermState(ICON_TERMINAL, 'No matches', `Nothing open matches “${termFilter.value.trim()}”.`);
+    return;
+  }
+
+  const focused = document.activeElement?.closest?.('.termItem')?.dataset.key;
+  items.forEach((c, n) => termItems.appendChild(termItem(c, n)));
+  if (focused) termItems.querySelector(`.termItem[data-key="${CSS.escape(focused)}"]`)?.focus();
+  // Only the first appearance animates; the list re-renders on every poll.
+  if (!termItems.classList.contains('settled')) setTimeout(() => termItems.classList.add('settled'), 700);
+}
+
+function termItem(c, n) {
+  const b = document.createElement('button');
+  b.className = 'termItem';
+  b.setAttribute('role', 'listitem');
+  b.dataset.key = c.key;
+  b.style.setProperty('--i', Math.min(n, 12));
+  const unread = convUnread(c);
+  if (unread) b.classList.add('unread');
+  if (c.key === term.openKey) b.setAttribute('aria-current', 'true');
+  const busy = c.members.filter(m => m.active);
+  const lead = c.group ? (busy[0] || latestMember(c)) : c.members[0];
+
+  const main = document.createElement('span');
+  main.className = 'termMain';
+
+  const row1 = document.createElement('span');
+  row1.className = 'termRow';
+  const title = document.createElement('span');
+  title.className = 'termTitle';
+  title.textContent = convTitle(c);
+  const time = document.createElement('span');
+  time.className = 'termTime';
+  if (busy.length) time.appendChild(typingDots());
+  else time.textContent = ago(convActive(c));
+  row1.append(title, time);
+
+  const row2 = document.createElement('span');
+  row2.className = 'termRow';
+  const preview = document.createElement('span');
+  preview.className = 'termPreview';
+  if (c.group) {
+    const from = document.createElement('span');
+    from.className = 'previewFrom';
+    from.textContent = `${tabName(lead)}: `;
+    preview.appendChild(from);
+  }
+  preview.append(lead.preview || 'No output yet');
+  const dotEl = document.createElement('span');
+  dotEl.className = 'unreadDot';
+  row2.append(preview, dotEl);
+
+  const tags = document.createElement('span');
+  tags.className = 'termTags';
+  const tag = document.createElement('span');
+  tag.className = 'tag';
+  const plain = document.createElement('span');
+  plain.className = 'tagPlain';
+  if (c.group) {
+    tag.textContent = `${c.members.length} tabs`;
+    plain.textContent = c.members.map(tabName).join(', ');
+  } else {
+    const info = c.members[0];
+    tag.textContent = info.process || 'shell';
+    plain.textContent = [info.directory !== info.title ? info.directory : '', ttyName(info.id),
+      info.app === 'iterm' ? 'iTerm' : ''].filter(Boolean).join(' · ');
+  }
+  tags.append(tag, plain);
+
+  main.append(row1, row2, tags);
+  b.append(convAvatar(c), main);
+  b.setAttribute('aria-label', [convTitle(c),
+    c.group ? `group of ${c.members.length} tabs` : (c.members[0].process || 'terminal'),
+    busy.length ? `${busy.length} working` : '', unread ? 'new output' : ''].filter(Boolean).join(', '));
+  b.addEventListener('click', () => navigate({ view: 'terminals', id: c.key }, !!term.openKey));
+  return b;
+}
+
+function renderDrawerTerms(convs) {
+  drawerTerms.innerHTML = '';
+  const recent = convs.slice(0, 6);
+  drawerTermsTitle.hidden = recent.length === 0 || !state.authed;
+  if (!state.authed) return;
+  for (const c of recent) {
+    const b = document.createElement('button');
+    b.className = 'drawerTerm';
+    const name = document.createElement('span');
+    name.className = 'name';
+    name.textContent = c.group ? `${convTitle(c)} · ${c.members.length} tabs` : convTitle(c);
+    b.append(convAvatar(c), name);
+    if (convUnread(c)) {
+      const d = document.createElement('span');
+      d.className = 'unreadDot';
+      d.style.display = 'block';
+      b.appendChild(d);
+    }
+    b.addEventListener('click', () => navigate({ view: 'terminals', id: c.key }));
+    drawerTerms.appendChild(b);
+  }
+}
+
+termFilter.addEventListener('input', renderTermList);
+termRefresh.addEventListener('click', requestTermList);
+
+// ── Conversation ─────────────────────────────────────────────────────────────
+// Each watched tab has a mirror of its lines by absolute index. The timeline is a
+// list of items in arrival order; a "chunk" item is a run of one tab's output that
+// starts at a line index and ends where that tab's next chunk starts. When a tab
+// writes new lines after something else happened in the conversation — your
+// command, another tab's output — a new chunk opens at the bottom, so output
+// reads in the order it arrived. Rewrites in place (spinners, a prompt being
+// echoed) stay in the chunk they belong to. A cleared tab's old chunks are frozen
+// as text rather than lost.
+function openThread(key) {
+  if (term.openKey === key) return;
+  term.openKey = key;
+  term.thread = {
+    key,
+    group: key.startsWith(GROUP_PREFIX),
+    members: [],
+    mirrors: new Map(),
+    items: [],
+    seq: 0,
+    closed: false,
+    to: null,
+    unseen: new Set(), // group tabs with output not yet looked at
+  };
+  term.history = [];
+  term.historyAt = -1;
+  termView.dataset.pane = 'thread';
+  threadEmpty.hidden = true;
+  threadHead.hidden = false;
+  threadScroll.hidden = false;
+  composer.hidden = false;
+  composerInput.value = '';
+  autosizeComposer();
+  setNotice('');
+  delete threadBody.dataset.ready;
+  threadBody.innerHTML = '';
+  const loading = document.createElement('div');
+  loading.className = 'threadDivider';
+  loading.textContent = 'Loading output…';
+  threadBody.appendChild(loading);
+  resolveMembers();
+  renderThreadHead();
+  renderTermList();
+  syncThreadControls();
+}
+
+function closeThread() {
+  if (term.openKey && state.authed) wsSend('term_unwatch');
+  term.openKey = null;
+  term.thread = null;
+  termView.dataset.pane = 'list';
+  threadEmpty.hidden = false;
+  threadHead.hidden = true;
+  threadScroll.hidden = true;
+  composer.hidden = true;
+  memberTabs.hidden = true;
+  threadJump.hidden = true;
+  setNotice('');
+  if (term.loaded) renderTermList();
+}
+
+// resolveMembers works out which tabs the open conversation covers and keeps the
+// agent watching exactly those, noting tabs that open or close in a group.
+function resolveMembers() {
+  const th = term.thread;
+  if (!th) return;
+  const c = findConv(th.key);
+  let ids;
+  if (c) ids = c.members.map(m => m.id);
+  else if (!th.group) ids = [th.key];   // watch anyway; the agent reports if it is gone
+  else if (!term.loaded) return;        // a group's members come from a listing
+  else ids = [];
+
+  const before = th.members;
+  const changed = ids.length !== before.length || ids.some(id => !before.includes(id));
+  if (before.length) {
+    for (const id of ids) if (!before.includes(id)) pushItem(th, { kind: 'divider', text: `${tabName(memberInfo(id))} joined` });
+    for (const id of before) if (!ids.includes(id)) pushItem(th, { kind: 'divider', text: `${tabName(memberInfo(id))} left` });
+  }
+  th.members = ids;
+  for (const id of ids) term.unread.delete(id);
+
+  if (th.group && term.loaded && ids.length === 0 && !th.closed) {
+    th.closed = true;
+    setNotice('This window was closed on the Mac.');
+  }
+  if (!ids.includes(th.to)) {
+    const saved = term.recipients.get(th.key);
+    th.to = ids.includes(saved) ? saved : (c ? latestMember(c).id : ids[0]) || null;
+  }
+  if (changed) {
+    watchThread();
+    if (before.length) queueThreadRender();
+  }
+  renderThreadHead();
+  renderMemberTabs();
+  syncThreadControls();
+}
+
+function watchThread() {
+  const th = term.thread;
+  if (state.authed && th && th.members.length) wsSend('term_watch', { ids: th.members });
+}
+
+function setNotice(text) {
+  threadNotice.hidden = !text;
+  threadNotice.textContent = text;
+}
+
+function renderThreadHead() {
+  const th = term.thread;
+  if (!th) return;
+  const c = findConv(th.key) || { key: th.key, group: th.group, members: th.members.map(memberInfo) };
+  threadAvatar.replaceChildren(c.members.length ? convAvatar(c) : avatarEl({ title: th.key }));
+  threadTitle.textContent = c.members.length ? convTitle(c) : (th.group ? 'Terminal window' : ttyName(th.key));
+  threadSub.innerHTML = '';
+  const busy = c.members.filter(m => m.active);
+  if (busy.length) {
+    threadSub.appendChild(typingDots());
+    threadSub.append(c.group ? ` ${busy.map(tabName).join(', ')} working · ` : ' working · ');
+  }
+  if (c.group) {
+    threadSub.append(`${c.members.length} tabs`);
+  } else if (c.members[0]) {
+    const info = c.members[0];
+    threadSub.append([info.process, info.directory !== info.title ? info.directory : '', ttyName(info.id)]
+      .filter(Boolean).join(' · '));
+  }
+}
+
+// In a group, the tab bar picks whose conversation is on screen; the composer
+// always talks to the tab being shown, the same as Terminal's own tab bar.
+function renderMemberTabs() {
+  const th = term.thread;
+  memberTabs.hidden = !th || !th.group || th.members.length < 2;
+  if (memberTabs.hidden) return;
+  memberTabs.innerHTML = '';
+  for (const id of th.members) {
+    const info = memberInfo(id);
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'toChip';
+    chip.setAttribute('role', 'tab');
+    chip.setAttribute('aria-selected', String(id === th.to));
+    chip.classList.toggle('unread', th.unseen.has(id));
+    chip.append(memberAvatar(info));
+    const name = document.createElement('span');
+    name.className = 'chipName';
+    name.textContent = tabName(info);
+    chip.appendChild(name);
+    if (info.active) chip.appendChild(typingDots());
+    const dot = document.createElement('span');
+    dot.className = 'unreadDot';
+    chip.appendChild(dot);
+    chip.addEventListener('click', () => showMember(id));
+    memberTabs.appendChild(chip);
+  }
+  memberTabs.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+}
+
+function showMember(id) {
+  const th = term.thread;
+  if (!th) return;
+  th.to = id;
+  th.unseen.delete(id);
+  term.recipients.set(th.key, id);
+  term.historyAt = -1;
+  renderMemberTabs();
+  syncThreadControls();
+  renderThread(true);
+}
+
+function syncThreadControls() {
+  const th = term.thread;
+  const usable = state.authed && !!th && !th.closed && !!th.to;
+  composerInput.disabled = !usable;
+  composerInterrupt.disabled = !usable;
+  composerPaste.disabled = !usable;
+  composerSend.disabled = !usable || !composerInput.value.trim();
+  composerInput.placeholder = !state.authed ? 'Reconnecting…'
+    : th?.closed ? 'This terminal was closed'
+    : th?.group && th.to ? `Message ${tabName(memberInfo(th.to))}` : 'Send a command';
+}
+
+function pushItem(th, item) {
+  item.seq = th.seq++;
+  item.time = item.time || Date.now();
+  th.items.push(item);
+  return item;
+}
+
+function mirrorEnd(m) {
+  return m.base + m.lines.length;
+}
+
+// liveChunkRanges maps each unfrozen chunk to the [start, end) lines it shows.
+function liveChunkRanges(th) {
+  const byTab = new Map();
+  for (const it of th.items) {
+    if (it.kind !== 'chunk' || it.frozen !== undefined) continue;
+    if (!byTab.has(it.tab)) byTab.set(it.tab, []);
+    byTab.get(it.tab).push(it);
+  }
+  const ranges = new Map();
+  for (const [tab, chunks] of byTab) {
+    const m = th.mirrors.get(tab);
+    if (!m) continue;
+    chunks.forEach((c, k) => {
+      const start = Math.max(c.at, m.base);
+      const end = k + 1 < chunks.length ? chunks[k + 1].at : mirrorEnd(m);
+      ranges.set(c, [start, Math.max(start, end)]);
+    });
+  }
+  return ranges;
+}
+
+function chunkText(th, range, tab) {
+  const m = th.mirrors.get(tab);
+  return m.lines.slice(range[0] - m.base, range[1] - m.base).join('\n');
+}
+
+function freezeTab(th, tab) {
+  const ranges = liveChunkRanges(th);
+  for (const [c, r] of ranges) if (c.tab === tab) c.frozen = chunkText(th, r, tab);
+}
+
+function lastLiveChunk(th, tab) {
+  for (let i = th.items.length - 1; i >= 0; i--) {
+    const it = th.items[i];
+    if (it.kind === 'chunk' && it.tab === tab && it.frozen === undefined) return it;
+  }
+  return null;
+}
+
+function onTermOutput(u) {
+  const th = term.thread;
+  if (!th || !th.members.includes(u.id)) return;
+  let m = th.mirrors.get(u.id);
+  if (!m) { m = { base: 0, lines: [] }; th.mirrors.set(u.id, m); }
+  const end = mirrorEnd(m);
+
+  if (u.reset || u.from < m.base || u.from > end) {
+    const had = m.lines.length > 0;
+    freezeTab(th, u.id);
+    m.base = u.from;
+    m.lines = u.lines.slice();
+    const label = u.initial
+      ? (had ? 'Reconnected' : (!th.group && u.from > 0 ? 'Showing recent output' : ''))
+      : (u.from > 0 ? 'Output skipped' : 'Screen cleared');
+    if (label) pushItem(th, { kind: 'divider', tab: th.group ? u.id : null, text: label });
+    pushItem(th, { kind: 'chunk', tab: u.id, at: m.base });
+  } else {
+    m.lines.length = u.from - m.base;
+    for (const line of u.lines) m.lines.push(line);
+    for (const it of th.items) {
+      if (it.kind === 'chunk' && it.tab === u.id && it.frozen === undefined && it.at > u.from) it.at = u.from;
+    }
+    // Output after one of your commands opens a new bubble below it.
+    let lastOfTab = null;
+    for (let i = th.items.length - 1; i >= 0 && !lastOfTab; i--) {
+      const it = th.items[i];
+      if (it.tab === u.id) lastOfTab = it;
+    }
+    if (!lastOfTab || lastOfTab.kind !== 'chunk' || lastOfTab.frozen !== undefined) {
+      pushItem(th, { kind: 'chunk', tab: u.id, at: u.from });
+    }
+    if (th.group && u.id !== th.to && mirrorEnd(m) > end && !th.unseen.has(u.id)) {
+      th.unseen.add(u.id);
+      renderMemberTabs();
+    }
+  }
+
+  if (m.lines.length > THREAD_MAX_LINES) {
+    const drop = m.lines.length - THREAD_MAX_LINES;
+    m.lines.splice(0, drop);
+    m.base += drop;
+  }
+  pruneItems(th);
+  queueThreadRender();
+}
+
+// pruneItems drops chunks that can never show anything again — emptied by a
+// later rewrite and no longer the tab's newest — and caps the timeline length.
+function pruneItems(th) {
+  const ranges = liveChunkRanges(th);
+  const newest = new Set(th.members.map(id => lastLiveChunk(th, id)));
+  th.items = th.items.filter(it => {
+    const r = ranges.get(it);
+    if (it.frozen === '') return false;
+    return !r || r[1] > r[0] || newest.has(it);
+  });
+  if (th.items.length > THREAD_MAX_ITEMS) th.items.splice(0, th.items.length - THREAD_MAX_ITEMS);
+}
+
+// selectingInThread reports a live text selection inside the conversation.
+// Redrawing replaces the bubbles, which would drop the selection mid-copy.
+function selectingInThread() {
+  const sel = window.getSelection();
+  if (!sel || sel.isCollapsed || sel.rangeCount === 0) return false;
+  return threadBody.contains(sel.getRangeAt(0).commonAncestorContainer);
+}
+
+// A redraw under a moving finger snaps a sideways-scrolled bubble back to the
+// left, so output waits until the finger lifts and any fling has settled.
+function threadBusy() {
+  return term.touching || selectingInThread();
+}
+
+function releaseHeldRender() {
+  if (term.renderHeld && !threadBusy()) {
+    term.renderHeld = false;
+    queueThreadRender();
+  }
+}
+
+document.addEventListener('selectionchange', releaseHeldRender);
+threadScroll.addEventListener('touchstart', () => {
+  clearTimeout(term.touchTimer);
+  term.touching = true;
+}, { passive: true });
+for (const ev of ['touchend', 'touchcancel']) {
+  threadScroll.addEventListener(ev, e => {
+    if (e.touches.length) return;
+    clearTimeout(term.touchTimer);
+    term.touchTimer = setTimeout(() => { term.touching = false; releaseHeldRender(); }, 500);
+  }, { passive: true });
+}
+
+function queueThreadRender() {
+  if (term.renderQueued) return;
+  term.renderQueued = true;
+  requestAnimationFrame(() => {
+    term.renderQueued = false;
+    renderThread();
+  });
+}
+
+function nearBottom() {
+  return threadScroll.scrollHeight - threadScroll.scrollTop - threadScroll.clientHeight < NEAR_BOTTOM_PX;
+}
+
+function renderThread(forceBottom) {
+  const th = term.thread;
+  if (!th) return;
+  if (!forceBottom && threadBusy()) {
+    term.renderHeld = true;
+    return;
+  }
+  const stick = forceBottom || nearBottom() || !threadBody.dataset.ready;
+  const frag = document.createDocumentFragment();
+  const ranges = liveChunkRanges(th);
+
+  for (const it of th.items) {
+    // A group shows the selected tab; notes about the window (joined/left) show everywhere.
+    if (th.group && it.tab && it.tab !== th.to) continue;
+    if (it.kind === 'chunk') {
+      const r = ranges.get(it);
+      const text = it.frozen !== undefined ? it.frozen : r ? chunkText(th, r, it.tab) : '';
+      if (!text) continue;
+      const bubble = document.createElement('div');
+      bubble.className = 'bubble in';
+      bubble.dataset.seq = it.seq;
+      const pre = document.createElement('pre');
+      pre.innerHTML = highlightText(text);
+      bubble.append(pre, copyTools(pre));
+      frag.appendChild(bubble);
+    } else if (it.kind === 'divider') {
+      const d = document.createElement('div');
+      d.className = 'threadDivider';
+      d.textContent = it.text;
+      frag.appendChild(d);
+    } else {
+      frag.appendChild(outgoingEl(it));
+    }
+  }
+
+  if (!frag.childNodes.length) {
+    const empty = document.createElement('div');
+    empty.className = 'threadDivider';
+    empty.textContent = th.members.length ? 'No output yet' : 'Loading output…';
+    frag.appendChild(empty);
+  }
+
+  // Bubbles are rebuilt, so carry each one's sideways scroll across.
+  const scrolledX = new Map();
+  for (const pre of threadBody.querySelectorAll('.bubble.in[data-seq] pre')) {
+    if (pre.scrollLeft) scrolledX.set(pre.parentElement.dataset.seq, pre.scrollLeft);
+  }
+  threadBody.replaceChildren(frag);
+  for (const [seq, x] of scrolledX) {
+    const pre = threadBody.querySelector(`.bubble.in[data-seq="${seq}"] pre`);
+    if (pre) pre.scrollLeft = x;
+  }
+  threadBody.dataset.ready = '1';
+  if (stick) threadScroll.scrollTop = threadScroll.scrollHeight;
+  term.stuck = nearBottom();
+  threadJump.hidden = term.stuck;
+}
+
+// ── Colours ──────────────────────────────────────────────────────────────────
+// Terminal's scripting interface returns plain text, so colour is inferred from
+// what the line says: prompts and commands, diffs, errors, warnings, links, and
+// the markers Claude Code prints.
+const HL_CACHE_MAX = 6000;
+const hlCache = new Map();
+
+function escapeHtml(text) {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+const HL_PROMPT = /^((?:\([\w.-]+\) )?[\w.-]+@[\w.-]+[^\n]*?[%$#] )(.*)$/;
+const HL_INPUT = /^([❯>] )(.+)$/;
+const HL_TOKENS = /(https?:\/\/(?:(?!&lt;|&gt;)[^\s"'`])+)|\b(error|errors|failed|failure|fatal|exception|denied|panic|traceback|refused)\b|\b(warning|warnings|warn|deprecated)\b|(\b(?:passed|succeeded|success|successful)\b|✓|✔)/gi;
+
+function highlightTokens(escaped) {
+  return escaped.replace(HL_TOKENS, (m, url, err, warn, ok) => {
+    if (url) {
+      const tail = url.match(/[.,;:!?)\]]+$/)?.[0] || '';
+      const href = url.slice(0, url.length - tail.length);
+      return `<a class="t-link" href="${href}" target="_blank" rel="noopener noreferrer">${href}</a>${tail}`;
+    }
+    if (err) return `<span class="t-err">${m}</span>`;
+    if (warn) return `<span class="t-warn">${m}</span>`;
+    return `<span class="t-ok">${m}</span>`;
+  });
+}
+
+function highlightLine(line) {
+  const cached = hlCache.get(line);
+  if (cached !== undefined) return cached;
+  let html;
+  const e = escapeHtml(line);
+  const trimmed = line.trimStart();
+  let m;
+  if (isRuleLine(trimmed)) {
+    html = `<span class="t-dim">${e}</span>`;
+  } else if ((m = line.match(HL_PROMPT))) {
+    html = `<span class="t-prompt">${escapeHtml(m[1])}</span><span class="t-cmd">${highlightTokens(escapeHtml(m[2]))}</span>`;
+  } else if ((m = line.match(HL_INPUT))) {
+    html = `<span class="t-prompt">${escapeHtml(m[1])}</span><span class="t-cmd">${escapeHtml(m[2])}</span>`;
+  } else if (/^@@ /.test(line)) {
+    html = `<span class="t-hunk">${e}</span>`;
+  } else if (/^(\+(?!\+\+)|\s*\d+\s+\+)/.test(line)) {
+    html = `<span class="t-add">${e}</span>`;
+  } else if (/^(-(?!--)|\s*\d+\s+-)/.test(line)) {
+    html = `<span class="t-del">${e}</span>`;
+  } else if (/^(error|fatal|E\d+|npm ERR!|FAIL)(?=[\s:\[]|$)/i.test(trimmed)) {
+    html = `<span class="t-err">${e}</span>`;
+  } else if (/^(modified|deleted|new file|renamed):/.test(trimmed)) {
+    const cls = trimmed.startsWith('modified') || trimmed.startsWith('renamed') ? 't-warn'
+      : trimmed.startsWith('deleted') ? 't-del' : 't-add';
+    html = `<span class="${cls}">${e}</span>`;
+  } else if (/^[✻✶✳✢✽·*] \S.*\b(for|ing…|ing\.\.\.)/.test(trimmed) || /^⎿/.test(trimmed)) {
+    html = `<span class="t-dim">${e}</span>`;
+  } else if (/^[⏺●]/.test(trimmed)) {
+    const lead = e.length - escapeHtml(trimmed).length;
+    html = `${e.slice(0, lead)}<span class="t-mark">${e.slice(lead, lead + 1)}</span>${highlightTokens(e.slice(lead + 1))}`;
+  } else {
+    html = highlightTokens(e);
+  }
+  if (hlCache.size >= HL_CACHE_MAX) hlCache.clear();
+  hlCache.set(line, html);
+  return html;
+}
+
+function isRuleLine(text) {
+  return (text.match(/[─━═]/g) || []).length >= 10;
+}
+
+function highlightText(text) {
+  return text.split('\n').map(highlightLine).join('\n');
+}
+
+function copyTools(pre) {
+  const tools = document.createElement('div');
+  tools.className = 'bubbleTools';
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'copyBtn';
+  b.setAttribute('aria-label', 'Copy this output');
+  b.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg><span>Copy</span>';
+  b.addEventListener('click', () => copyText(pre, b));
+  tools.appendChild(b);
+  return tools;
+}
+
+function copyText(pre, button) {
+  const done = () => {
+    button.classList.add('done');
+    button.querySelector('span').textContent = 'Copied';
+    showToast('Copied to your phone');
+  };
+  navigator.clipboard.writeText(pre.textContent).then(done).catch(() => {
+    // Clipboard blocked: select the text so the system Copy menu can take it.
+    const range = document.createRange();
+    range.selectNodeContents(pre);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+    showToast('Text selected — tap Copy', 3000);
+  });
+}
+
+async function pasteIntoComposer() {
+  if (composerInput.disabled) return;
+  let text;
+  try {
+    text = await navigator.clipboard.readText();
+  } catch {
+    composerInput.focus();
+    showToast('Long-press the message box and tap Paste', 3500);
+    return;
+  }
+  if (!text) { showToast('Clipboard is empty'); return; }
+  const start = composerInput.selectionStart ?? composerInput.value.length;
+  const end = composerInput.selectionEnd ?? start;
+  composerInput.setRangeText(text, start, end, 'end');
+  composerInput.focus();
+  autosizeComposer();
+  syncThreadControls();
+}
+
+function outgoingEl(m) {
+  const b = document.createElement('div');
+  b.className = 'bubble out';
+  if (m.kind === 'signal') b.classList.add('signal');
+  if (m.status === 'failed') b.classList.add('failed');
+  const pre = document.createElement('pre');
+  pre.textContent = m.text;
+  const meta = document.createElement('div');
+  meta.className = 'bubbleMeta';
+  const time = new Date(m.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  meta.textContent = m.status === 'failed' ? `${m.error || 'Not sent'} · tap to retry`
+    : m.status === 'sending' ? `${time} · sending` : `${time} · ✓`;
+  b.append(pre, meta);
+  if (m.status === 'failed') {
+    b.setAttribute('role', 'button');
+    b.tabIndex = 0;
+    b.addEventListener('click', () => resend(m));
+  }
+  return b;
+}
+
+function nonce() {
+  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function dispatchItem(m) {
+  m.status = 'sending';
+  m.nonce = nonce();
+  if (m.kind === 'signal') wsSend('term_interrupt', { id: m.tab, nonce: m.nonce });
+  else wsSend('term_send', { id: m.tab, text: m.text, nonce: m.nonce });
+}
+
+function pushOutgoing(kind, text) {
+  const th = term.thread;
+  if (!th || !th.to || !state.authed) return;
+  dispatchItem(pushItem(th, { kind, tab: th.to, text }));
+  renderThread(true);
+}
+
+function resend(m) {
+  const th = term.thread;
+  if (!th || !state.authed || th.closed) return;
+  th.items = th.items.filter(it => it !== m);
+  m.time = Date.now();
+  m.error = '';
+  dispatchItem(pushItem(th, m));
+  renderThread(true);
+}
+
+function onTermAck(a) {
+  const th = term.thread;
+  if (!th) return;
+  const m = th.items.find(x => x.nonce === a.nonce);
+  if (!m) return;
+  m.status = a.ok ? 'sent' : 'failed';
+  if (!a.ok) {
+    m.error = a.error === 'not_authorized' ? 'No terminal access'
+      : a.error === 'not_found' ? 'Terminal closed' : 'Not sent';
+    if (a.error === 'not_authorized') setNotice('macOS blocked the agent from controlling Terminal. Allow it under System Settings → Privacy & Security → Automation, then restart the service.');
+  }
+  queueThreadRender();
+}
+
+function onTermError(e) {
+  const th = term.thread;
+  if (!th || (e.id && !th.members.includes(e.id))) return;
+  if (e.error === 'not_found') {
+    if (th.group) {
+      requestTermList();   // the listing works out who left
+      return;
+    }
+    th.closed = true;
+    setNotice('This terminal was closed on the Mac.');
+  } else if (e.error === 'not_authorized') {
+    setNotice('macOS blocked the agent from reading Terminal. Allow it under System Settings → Privacy & Security → Automation, then restart the service.');
+  } else {
+    setNotice(e.message || 'Could not read this terminal.');
+  }
+  syncThreadControls();
+}
+
+function autosizeComposer() {
+  composerInput.style.height = 'auto';
+  composerInput.style.height = Math.min(composerInput.scrollHeight, 140) + 'px';
+}
+
+function sendComposer() {
+  const text = composerInput.value.replace(/\s+$/, '');
+  if (!text.trim() || composerInput.disabled) return;
+  pushOutgoing('command', text);
+  if (term.history[term.history.length - 1] !== text) term.history.push(text);
+  term.historyAt = -1;
+  composerInput.value = '';
+  autosizeComposer();
+  syncThreadControls();
+}
+
+composer.addEventListener('submit', e => { e.preventDefault(); sendComposer(); composerInput.focus(); });
+composerInput.addEventListener('input', () => { autosizeComposer(); syncThreadControls(); });
+composerInput.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+    e.preventDefault();
+    sendComposer();
+    return;
+  }
+  // Up/Down walk the commands sent from here, like a shell's history.
+  const atEdge = !composerInput.value.includes('\n');
+  if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && atEdge && term.history.length) {
+    e.preventDefault();
+    if (e.key === 'ArrowUp') {
+      term.historyAt = term.historyAt < 0 ? term.history.length - 1 : Math.max(0, term.historyAt - 1);
+    } else if (term.historyAt >= 0) {
+      term.historyAt = term.historyAt + 1 >= term.history.length ? -1 : term.historyAt + 1;
+    }
+    composerInput.value = term.historyAt < 0 ? '' : term.history[term.historyAt];
+    autosizeComposer();
+    syncThreadControls();
+  }
+});
+composerPaste.addEventListener('click', pasteIntoComposer);
+composerInterrupt.addEventListener('click', () => {
+  pushOutgoing('signal', 'Ctrl-C');
+  if (navigator.vibrate) navigator.vibrate(20);
+});
+
+threadBack.addEventListener('click', () => {
+  if (history.state?.fromApp && parseRoute(location.hash).id) history.back();
+  else navigate({ view: 'terminals', id: null }, true);
+});
+threadScroll.addEventListener('scroll', () => {
+  term.stuck = nearBottom();
+  threadJump.hidden = term.stuck;
+}, { passive: true });
+// The soft keyboard opening shrinks the thread; keep the newest output in view.
+new ResizeObserver(() => {
+  if (term.stuck && term.thread) threadScroll.scrollTop = threadScroll.scrollHeight;
+}).observe(threadScroll);
+threadJump.addEventListener('click', () => {
+  threadScroll.scrollTo({ top: threadScroll.scrollHeight, behavior: 'smooth' });
+});
+
+function applyWrap() {
+  termView.classList.toggle('nowrap', !term.wrap);
+  threadWrap.setAttribute('aria-pressed', String(term.wrap));
+}
+threadWrap.addEventListener('click', () => {
+  term.wrap = !term.wrap;
+  localStorage.setItem(TERM_WRAP_KEY, term.wrap ? '1' : '0');
+  applyWrap();
+  showToast(term.wrap ? 'Wrapping long lines' : 'Long lines scroll sideways');
+});
+applyWrap();
+
+// Times in the list ("2m") age without new data arriving.
+setInterval(() => { if (state.view === 'terminals' && term.loaded) renderTermList(); }, 30000);
+
+applyRoute(parseRoute(location.hash));
+renderTermList();
 
 // ── Install as an app ────────────────────────────────────────────────────────
 // Standalone mode is the practical answer to iOS having no Fullscreen API for

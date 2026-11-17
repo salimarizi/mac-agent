@@ -28,6 +28,7 @@ import (
 	"github.com/salimarizi/mac-agent/internal/capture"
 	"github.com/salimarizi/mac-agent/internal/input"
 	"github.com/salimarizi/mac-agent/internal/session"
+	"github.com/salimarizi/mac-agent/internal/terminal"
 )
 
 type message struct {
@@ -85,6 +86,8 @@ type conn struct {
 	// capMu guards capCfg, this viewer's capture override (nil = server default).
 	capMu  sync.Mutex
 	capCfg *capture.Config
+	// terms serves this viewer's terminal requests; nil until authenticated.
+	terms *terminal.Bridge
 	// done closes when teardown begins, stopping the ping loop.
 	done     chan struct{}
 	doneOnce sync.Once
@@ -383,6 +386,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	// Only take the viewer slot after auth, so a wrong password can't kick off
 	// the session that is currently working.
 	s.adopt(c)
+	c.terms = terminal.NewBridge(c.send)
 
 	_ = ws.SetReadDeadline(time.Now().Add(pongWait))
 	ws.SetPongHandler(func(string) error {
@@ -453,6 +457,10 @@ func (s *Server) authenticate(c *conn, ip string) bool {
 }
 
 func (s *Server) route(c *conn, msg message) {
+	if terminal.Handles(msg.Type) {
+		c.terms.Handle(msg.Type, msg.Payload)
+		return
+	}
 	switch msg.Type {
 	case "hello":
 		s.startSession(c)
@@ -658,6 +666,9 @@ func (s *Server) teardown(c *conn) {
 	c.closeDone()
 	s.release(c)
 	s.teardownSession(c)
+	if c.terms != nil {
+		c.terms.Close()
+	}
 	_ = c.ws.Close()
 	s.viewers.Add(-1)
 	c.closeGone()

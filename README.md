@@ -28,6 +28,8 @@ Mac (behind any NAT):
 - Two-way clipboard between phone and Mac
 - macOS shortcut sheet (Spotlight, ⌘Tab, ⌘C/V, screenshot, …)
 - Accessory key bar: arrow keys, Esc, Tab, Cmd/Ctrl/Opt/Shift modifiers
+- Terminals as chats: every open Terminal.app / iTerm2 tab listed like a
+  messaging app, with two-way commands that land in the real tab
 - Installable to the home screen (PWA) for a chrome-less window on iOS
 - Password authentication with constant-time comparison and rate limiting
 - TLS support (direct or via reverse proxy)
@@ -61,6 +63,31 @@ shows up mid-session the client steps down one preset on its own — pushing mor
 bitrate than the path can carry just builds a queue, and that queue is what gets
 felt as lag. It never steps back up by itself; touching the chip takes manual
 control and switches the automatic behaviour off for the session.
+
+### Terminals
+
+The menu button (top left; a permanent sidebar on wide screens) switches between
+**Screen** and **Terminals**. Terminals lists every open Terminal.app and iTerm2
+tab as a conversation: its latest line as the preview, the program in front
+(`claude`, `zsh`, `ssh`, …), and typing dots while its output is changing. A
+window holding several tabs shows as one group conversation.
+
+Opening one shows the tab's output as incoming messages. Whatever you send is
+typed into that tab on the Mac followed by Return, so it appears in the real
+window immediately; output typed at the Mac shows up on the phone within a
+second. **⌃C** interrupts the program in front. In a group, a tab bar under the
+header switches between the window's tabs, like Terminal's own tab bar; a dot
+marks tabs with unseen output, and commands go to the tab on screen.
+
+Each output bubble has a **Copy** button, and the clipboard button pastes into
+the command box. Terminal only hands out plain text, so colours are inferred:
+prompts and commands, diffs, errors, warnings, links and Claude Code's markers.
+
+It needs one more permission: System Settings → Privacy & Security →
+**Automation** → mac-agent → **Terminal** (and **iTerm** if used). macOS asks on
+the first use; until it is granted the Terminals screen explains how. iTerm2
+exposes only the visible screen, not its scrollback, and terminals without
+AppleScript support (VS Code, Warp, Ghostty, …) are not listed.
 
 **More → Stream stats** overlays resolution, framerate, bitrate, round trip,
 packet loss and `path`. `path: relay` means the media is going through TURN on
@@ -223,6 +250,21 @@ server-side, and the stream restarts only when something actually changed:
 {"type":"quality","payload":{"width":1280,"fps":30,"bitrate":"3M"}}
 ```
 
+Terminals also travel over the signaling socket (see `internal/terminal/bridge.go`):
+
+```json
+{"type":"term_list"}
+{"type":"term_watch","payload":{"ids":["/dev/ttys004","/dev/ttys008"]}}
+{"type":"term_unwatch"}
+{"type":"term_send","payload":{"id":"/dev/ttys004","text":"git status","nonce":"a1"}}
+{"type":"term_interrupt","payload":{"id":"/dev/ttys004","nonce":"a2"}}
+```
+
+The agent answers with `term_list` (`terminals`, each with `id`, `window`,
+`tab`, `title`, `process`, `preview`, `active`), `term_ack` per send/interrupt,
+and `term_output` while watching: `{"id","from","lines","reset"}` means drop
+every line from index `from` on, then append `lines`.
+
 ## Project layout
 
 ```
@@ -237,7 +279,8 @@ mac-agent/
 │   ├── signaling/signaling.go  WebSocket + auth + per-viewer lifecycle
 │   ├── capture/capture.go      CGDisplayCreateImage → ffmpeg → H.264
 │   ├── session/session.go      WebRTC peer: video track + data channel
-│   └── input/input.go          data-channel JSON → robotgo mouse/keyboard
+│   ├── input/input.go          data-channel JSON → robotgo mouse/keyboard
+│   └── terminal/               Terminal/iTerm tabs over Apple Events (osascript)
 ├── .env.example                environment variable template
 └── .gitignore
 ```
@@ -257,6 +300,7 @@ System Settings → Privacy & Security:
 
 1. **Screen Recording** → enable for Terminal / mac-agent binary
 2. **Accessibility** → enable for the same
+3. **Automation** → Terminal (and iTerm) under mac-agent, for the Terminals screen
 
 Restart Terminal after granting.
 
@@ -269,6 +313,7 @@ Restart Terminal after granting.
 | High latency | Reduce `-width` or `-bitrate`; ensure VideoToolbox is used |
 | Can't connect over internet | Check SSH tunnel, nginx config, firewall 443+3478 |
 | WebRTC fails through NAT | Ensure coturn is running and TURN env vars are set |
+| Terminals says "Allow terminal access" | Grant Automation → Terminal for mac-agent, restart the service |
 
 ## License
 
