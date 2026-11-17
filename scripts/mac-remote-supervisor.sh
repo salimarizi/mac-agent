@@ -117,24 +117,38 @@ curl -sf -m 2 "http://127.0.0.1:${TUNNEL_PORT}/healthz" >/dev/null 2>&1 \
 
 # ── Open the reverse tunnel ───────────────────────────────────────────────────
 
-# A previous run that lost the network can leave the forwarded port bound on the
-# VPS; clear it first so ExitOnForwardFailure does not trip on our own ghost.
-free_output=$("${ssh_base[@]}" "${VPS_USER}@${VPS_HOST}" \
-  "command -v mac-remote-free-port >/dev/null && mac-remote-free-port ${TUNNEL_PORT} || echo 'helper not installed'" 2>&1)
-log "vps: ${free_output}"
+start_tunnel() {
+  "${ssh_base[@]}" \
+    -N \
+    -R "${TUNNEL_PORT}:127.0.0.1:${TUNNEL_PORT}" \
+    -o ExitOnForwardFailure=yes \
+    -o ServerAliveInterval=15 \
+    -o ServerAliveCountMax=3 \
+    "${VPS_USER}@${VPS_HOST}" &
+  SSH_PID=$!
+  sleep 3
+  kill -0 "$SSH_PID" 2>/dev/null
+}
 
-log "opening reverse tunnel ${TUNNEL_PORT} -> ${VPS_USER}@${VPS_HOST}"
-"${ssh_base[@]}" \
-  -N \
-  -R "${TUNNEL_PORT}:127.0.0.1:${TUNNEL_PORT}" \
-  -o ExitOnForwardFailure=yes \
-  -o ServerAliveInterval=15 \
-  -o ServerAliveCountMax=3 \
-  "${VPS_USER}@${VPS_HOST}" &
-SSH_PID=$!
+# A tunnel that died uncleanly leaves the port bound on the VPS until sshd reaps
+# the session, and the tunnel account is nologin so no remote helper can clear
+# it. Wait the bind out here — exiting instead just makes launchd restart us into
+# the same bind every ThrottleInterval.
+tunnel_up=0
+for attempt in $(seq 1 10); do
+  log "opening reverse tunnel ${TUNNEL_PORT} -> ${VPS_USER}@${VPS_HOST} (attempt ${attempt}/10)"
+  if start_tunnel; then
+    tunnel_up=1
+    break
+  fi
+  stop_pid "$SSH_PID"
+  SSH_PID=""
+  backoff=$(( attempt < 6 ? attempt * 10 : 60 ))
+  log "tunnel did not come up; retrying in ${backoff}s"
+  sleep "$backoff"
+done
 
-sleep 3
-kill -0 "$SSH_PID" 2>/dev/null || die "ssh tunnel failed to start"
+[ "$tunnel_up" = 1 ] || die "reverse tunnel never came up after 10 attempts"
 
 if [ -n "$DOMAIN" ]; then
   confirmed=0
