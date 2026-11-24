@@ -14,6 +14,7 @@
 //	{"t":"key","key":"escape","mods":["cmd"]} tap a key with optional modifiers
 //	{"t":"clipset","text":"…"}                put text on the Mac's clipboard
 //	{"t":"clipget"}                           ask for it back: {"t":"clip","text":"…"}
+//	{"t":"release"}                           release every modifier key
 //
 // Mouse-move rates can be high (60/s); everything here is cheap and synchronous,
 // but robotgo is not goroutine-safe, so all calls are funnelled through a single
@@ -120,6 +121,12 @@ func (c *Controller) Drain() {
 		select {
 		case <-c.events:
 		default:
+			// Start each session with every modifier up, in case the last one
+			// left one stuck.
+			select {
+			case c.events <- Event{T: "release"}:
+			default:
+			}
 			return
 		}
 	}
@@ -232,42 +239,50 @@ func (c *Controller) dispatch(e Event) {
 		c.reportCursor()
 
 	case "click":
-		robotgo.Click(button(e.Button), false)
+		click(e.Button)
 		c.reportCursor()
 
 	case "dblclick":
-		robotgo.Click(button(e.Button), true)
+		doubleClick(e.Button)
 		c.reportCursor()
 
 	case "down":
-		robotgo.Toggle(button(e.Button), "down")
+		mouseButton(e.Button, true, 1)
 
 	case "up":
-		robotgo.Toggle(button(e.Button), "up")
+		mouseButton(e.Button, false, 1)
 
 	case "scroll":
-		// robotgo.Scroll(x, y) takes integer "click" counts.
 		sx := int(e.DX)
 		sy := int(e.DY)
 		if sx != 0 || sy != 0 {
-			robotgo.Scroll(sx, sy)
+			scroll(sx, sy)
 		}
 
 	case "type":
 		if e.Text != "" {
-			robotgo.Type(e.Text)
+			typeText(e.Text)
 		}
 
 	case "key":
 		if e.Key == "" {
 			return
 		}
-		// robotgo.KeyTap(key, modifiers...) — modifiers are variadic strings.
+		if pressKey(e.Key, e.Mods) {
+			return
+		}
 		args := make([]any, 0, len(e.Mods))
 		for _, m := range e.Mods {
 			args = append(args, m)
 		}
-		robotgo.KeyTap(e.Key, args...)
+		if err := robotgo.KeyTap(e.Key, args...); err != nil {
+			log.Printf("input: key %q: %v", e.Key, err)
+		}
+		// robotgo releases modifiers as plain key ups, which macOS can miss.
+		releaseModifiers()
+
+	case "release":
+		releaseModifiers()
 
 	case "clipset":
 		// Putting the phone's text on the Mac's clipboard and letting the user
@@ -290,17 +305,6 @@ func (c *Controller) dispatch(e Event) {
 
 	default:
 		log.Printf("input: unknown event type %q", e.T)
-	}
-}
-
-func button(b string) string {
-	switch b {
-	case "right":
-		return "right"
-	case "center", "middle":
-		return "center"
-	default:
-		return "left"
 	}
 }
 
